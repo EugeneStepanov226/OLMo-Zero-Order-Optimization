@@ -94,7 +94,7 @@ tokenizer:
   truncate_direction: right
 
 save_folder: ./runs/OLMo2-1B-olmomix-ddp-zo-muon
-save_overwrite: false
+save_overwrite: true
 
 save_interval: 500
 save_interval_ephemeral: 500
