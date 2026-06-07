@@ -1054,6 +1054,43 @@ def build_optimizer(cfg: TrainConfig, model: nn.Module) -> torch.optim.Optimizer
             num_samples=cfg.optimizer.zo_muon_num_samples,
             ns_steps=cfg.optimizer.zo_muon_ns_steps,
             weight_decay=cfg.optimizer.weight_decay,
+            max_grad_norm=cfg.optimizer.zo_muon_max_grad_norm,
+        )
+    elif cfg.optimizer.name == OptimizerType.hybrid_zo_muon:
+        from .hybrid_optim import HybridZOMuon, split_params_fo_zo
+
+        zo_groups, fo_groups = split_params_fo_zo(
+            model,
+            fo_param_patterns=list(cfg.optimizer.hybrid_fo_param_patterns),
+            weight_decay=cfg.optimizer.weight_decay,
+            decay_norm_and_bias=cfg.optimizer.decay_norm_and_bias,
+            decay_embeddings=cfg.optimizer.decay_embeddings,
+        )
+        # Добавляем zo_eps в zo_groups (нужно ZOMuon внутри)
+        for g in zo_groups:
+            g["zo_eps"] = cfg.optimizer.zo_eps
+            g["perturbation_mode"] = cfg.optimizer.zo_perturbation_mode
+        log.info(
+            f"HybridZOMuon: {sum(len(g['params']) for g in zo_groups)} ZO param tensors, "
+            f"{sum(len(g['params']) for g in fo_groups)} FO param tensors "
+            f"(patterns: {list(cfg.optimizer.hybrid_fo_param_patterns)})"
+        )
+        return HybridZOMuon(
+            zo_params=zo_groups,
+            fo_params=fo_groups,
+            lr=cfg.optimizer.learning_rate,
+            zo_eps=cfg.optimizer.zo_eps,
+            rank=cfg.optimizer.zo_muon_rank,
+            step_interval=cfg.optimizer.zo_muon_step_interval,
+            num_samples=cfg.optimizer.zo_muon_num_samples,
+            ns_steps=cfg.optimizer.zo_muon_ns_steps,
+            weight_decay=cfg.optimizer.weight_decay,
+            max_grad_norm=cfg.optimizer.zo_muon_max_grad_norm,
+            fo_lr=cfg.optimizer.hybrid_fo_lr,
+            fo_betas=tuple(cfg.optimizer.hybrid_fo_betas),
+            fo_eps=cfg.optimizer.hybrid_fo_eps,
+            fo_weight_decay=cfg.optimizer.hybrid_fo_weight_decay,
+            fo_max_grad_norm=cfg.optimizer.hybrid_fo_max_grad_norm,
         )
     elif cfg.optimizer.name == OptimizerType.ldsd_muon:
         from .ldsd_optim import LDSDMuon
@@ -1131,6 +1168,18 @@ def build_optimizer(cfg: TrainConfig, model: nn.Module) -> torch.optim.Optimizer
             variance=cfg.optimizer.ldsd_rl_variance,
             perturbation_mode=cfg.optimizer.zo_perturbation_mode,
             weight_decay=cfg.optimizer.weight_decay,
+        )
+    elif cfg.optimizer.name == OptimizerType.fo_muon:
+        from .fo_optim import FOMuon
+
+        return FOMuon(
+            param_groups,
+            lr=cfg.optimizer.learning_rate,
+            momentum=cfg.optimizer.fo_muon_momentum,
+            nesterov=cfg.optimizer.fo_muon_nesterov,
+            ns_steps=cfg.optimizer.fo_muon_ns_steps,
+            weight_decay=cfg.optimizer.weight_decay,
+            max_grad_norm=cfg.optimizer.fo_muon_max_grad_norm,
         )
     else:
         raise NotImplementedError

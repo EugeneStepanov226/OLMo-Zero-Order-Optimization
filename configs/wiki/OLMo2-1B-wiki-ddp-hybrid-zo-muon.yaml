@@ -1,0 +1,168 @@
+# OLMo2-1B: тело модели через ZOMuon (ZO), голова (ff_out) через AdamW (FO).
+#
+# Идея: FO-градиент для выходного слоя точный и дешёвый (один backward),
+# тогда как ZO экономит на backprop для тяжёлых attention/FFN матриц.
+#
+# За шаг:
+#   - q ZO forward-проходов для тела (ZOMuon)
+#   - 1 FO forward + 1 backward для головы (AdamW)
+#
+# Запуск:
+#   uv run torchrun --nproc_per_node=2 scripts/train.py \
+#       configs/wiki/OLMo2-1B-wiki-ddp-hybrid-zo-muon.yaml
+
+run_name: OLMo2-1B-wiki-ddp-hybrid-zo-muon
+seed: 6198
+dry_run: false
+
+wandb:
+  name: ${run_name}
+  project: zo-muon-new
+  group: ${run_name}
+  entity: andrey
+
+model:
+  d_model: 896
+  n_heads: 14
+  n_layers: 16
+  mlp_ratio: 8
+  weight_tying: false
+  alibi: false
+  rope: true
+  rope_theta: 500000
+  flash_attention: true
+  attention_dropout: 0.0
+  include_bias: false
+  block_type: sequential
+  layer_norm_type: rms
+  layer_norm_with_affine: true
+  layer_norm_eps: 1e-6
+  bias_for_layer_norm: false
+  attention_layer_norm: true
+  attention_layer_norm_with_affine: true
+  norm_after: true
+  activation_type: swiglu
+  residual_dropout: 0.0
+  embedding_dropout: 0.0
+  max_sequence_length: 1024
+  vocab_size: 100278
+  embedding_size: 100352
+  eos_token_id: 100257
+  pad_token_id: 100277
+  init_device: cuda
+  init_fn: normal
+  init_std: 0.02
+  init_cutoff_factor: 3
+
+softmax_auxiliary_loss: true
+auxiliary_loss_multiplier: 1e-5
+fused_loss: false
+
+compile: null
+
+activation_checkpointing: whole_layer  # нужен для FO-backward (хранит активации)
+
+optimizer:
+  name: hybrid_zo_muon
+
+  # --- ZO-тело (ZOMuon для 2D матриц attention/FFN) ---
+  learning_rate: 7.0e-4
+  weight_decay: 0.1
+  decay_norm_and_bias: false     # нормы через FO, weight decay не нужен
+  decay_embeddings: false
+  metrics_log_interval: 1
+  zo_eps: 1.0e-3
+  zo_perturbation_mode: two_side
+  zo_muon_rank: 64
+  zo_muon_step_interval: 100
+  zo_muon_num_samples: 1
+  zo_muon_ns_steps: 5
+  zo_muon_max_grad_norm: 150.0
+
+  # --- FO-голова (AdamW для ff_out + нормы) ---
+  hybrid_fo_param_patterns:
+    - ff_out       # выходная проекция LM-головы
+    - norm         # все layer norm (attn_norm, ff_norm, …)
+  hybrid_fo_lr: 1.0e-4           # FO LR обычно ниже ZO LR
+  hybrid_fo_betas: [0.9, 0.95]
+  hybrid_fo_eps: 1.0e-8
+  hybrid_fo_weight_decay: 0.1
+  hybrid_fo_max_grad_norm: 1.0   # стандартный клиппинг для FO
+
+scheduler:
+  name: cosine_with_warmup
+  units: tokens
+  t_warmup: 50000000             # ~95 шагов при batch=12
+  t_max: 492000000
+  alpha_f: 0.1
+  warmup_min_lr: 0.0
+
+tokenizer:
+  identifier: tokenizers/allenai_dolma2.json
+  truncate_direction: right
+
+save_folder: ./runs/OLMo2-1B-wiki-ddp-hybrid-zo-muon
+save_overwrite: false
+
+save_interval: 1000
+save_interval_ephemeral: 1000
+save_num_checkpoints_to_keep: 2
+save_interval_unsharded: 1000
+save_num_unsharded_checkpoints_to_keep: 2
+
+load_path: null
+
+global_train_batch_size: 12
+device_train_microbatch_size: 2   # меньше микробатч → меньше активаций при backward
+
+max_duration: 492000000T         # ~500M токенов ≈ 40k шагов
+
+precision: amp_bf16              # bf16 активации экономят ~2x памяти для backward
+
+distributed_strategy: ddp
+
+ddp:
+  grad_sync_mode: batch
+  find_unused_params: false
+
+max_grad_norm: null              # клиппинг отдельно в zo_muon_max_grad_norm и hybrid_fo_max_grad_norm
+max_grad_norm_ratio: null
+
+speed_monitor:
+  window_size: 1
+
+gen1_gc_interval: 10
+
+eval_interval: 1000
+eval_subset_num_batches: -1
+device_eval_batch_size: ${device_train_microbatch_size}
+
+evaluators:
+  - label: dolma_wiki-validation
+    type: lm
+    data:
+      pad_direction: right
+      num_workers: 4
+      drop_last: true
+      pin_memory: true
+      prefetch_factor: 2
+      persistent_workers: true
+      memmap_dtype: uint32
+      paths:
+        - /home/gur_andry/data/wikitext/validation/0_00000.npy
+
+data:
+  pad_direction: right
+  num_workers: 8
+  drop_last: true
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+  memmap_dtype: uint32
+  timeout: 0
+  instance_filter:
+    repetition_max_period: 13
+    repetition_min_period: 1
+    repetition_max_count: 32
+  paths:
+    - data/olmo-mix/train/00000_00000.npy

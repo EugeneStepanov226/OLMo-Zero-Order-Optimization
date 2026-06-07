@@ -36,6 +36,8 @@ from olmo.torch_util import (
     get_local_rank,
     get_local_world_size,
     get_world_size,
+    is_distributed,
+    move_to_device,
     peak_gpu_memory,
     seed_all,
 )
@@ -49,6 +51,96 @@ from olmo.util import (
 )
 
 log = logging.getLogger("train")
+
+
+# Parameter-name prefixes that identify the token/positional embeddings and the
+# LM head. We split these out so they train with first-order AdamW while the
+# rest of the network trains with the configured zero-order optimizer.
+_EMB_HEAD_PREFIXES = ("transformer.wte.", "transformer.wpe.", "transformer.ff_out.")
+
+
+def _is_emb_head_param(name: str) -> bool:
+    if name.startswith("module."):
+        name = name[len("module.") :]
+    return any(name.startswith(p) for p in _EMB_HEAD_PREFIXES)
+
+
+class _MixedFOZOTrainer(Trainer):
+    """Trainer that runs an AdamW step on embedding+head before the regular ZO step.
+
+    The FO step is memory-frugal: it computes gradients *only* for the embedding/head
+    tensors via ``torch.autograd.grad`` (so no gradient buffers are allocated for the
+    ~1B body parameters that ZO handles), running the forward through the *unwrapped*
+    model so DDP's reducer is never armed. Cross-rank averaging is done manually.
+    """
+
+    fo_optim: Optional[torch.optim.Optimizer] = None  # attached after construction
+
+    @property
+    def _fo_base_lr(self) -> float:
+        fo_lr = self.cfg.optimizer.fo_learning_rate
+        return fo_lr if fo_lr is not None else self.cfg.optimizer.learning_rate
+
+    def _train_step_zero_order(self, batch, reduce_global_loss: bool = True):
+        assert self.fo_optim is not None, "fo_optim must be attached before training"
+
+        # ---- First-order step on embedding + head only ----
+        self.fo_optim.zero_grad(set_to_none=True)
+        batch = move_to_device(batch, self.device)
+
+        fo_params = [p for group in self.fo_optim.param_groups for p in group["params"]]
+        micro_batches = self.split_batch(batch)
+        batch_size_in_tokens = batch["input_ids"].numel()
+        autocast_device = "mps" if self.device.type == "mps" else "cuda"
+
+        accum_grads = [torch.zeros_like(p, dtype=torch.float32) for p in fo_params]
+        for micro_batch in micro_batches:
+            with torch.autocast(autocast_device, enabled=True, dtype=self.cfg.autocast_precision):
+                # Forward through the UNWRAPPED model to avoid arming the DDP reducer.
+                logits = self.model(
+                    input_ids=micro_batch["input_ids"],
+                    attention_mask=micro_batch.get("attention_mask"),
+                    attention_bias=micro_batch.get("attention_bias"),
+                    doc_lens=micro_batch.get("doc_lens"),
+                    max_doc_lens=micro_batch.get("max_doc_lens"),
+                ).logits
+                logits_for_loss = logits[..., :-1, :].contiguous().view(-1, logits.size(-1))
+                labels = self.get_labels(micro_batch).view(-1)
+                ce_loss, z_loss = self.loss_fn(
+                    logits_for_loss,
+                    labels,
+                    ignore_index=-100,
+                    reduction="sum",
+                    compute_z_loss=self.cfg.softmax_auxiliary_loss,
+                )
+                loss = ce_loss / batch_size_in_tokens
+                if z_loss is not None:
+                    loss = loss + z_loss / batch_size_in_tokens
+            # Gradients ONLY for emb/head — body grads are never materialized.
+            grads = torch.autograd.grad(loss, fo_params, retain_graph=False, allow_unused=True)
+            for acc, g in zip(accum_grads, grads):
+                if g is not None:
+                    acc.add_(g.float())
+
+        # Manual cross-rank averaging (DDP reducer was bypassed above).
+        if is_distributed():
+            for acc in accum_grads:
+                dist.all_reduce(acc, op=dist.ReduceOp.SUM)
+                acc.div_(get_world_size())
+
+        for p, acc in zip(fo_params, accum_grads):
+            p.grad = acc.to(p.dtype)
+
+        if self.cfg.max_grad_norm is not None and self.cfg.max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(fo_params, self.cfg.max_grad_norm)
+
+        fo_lr = self.scheduler.get_lr(self._fo_base_lr, self.scheduler_current, self.scheduler_max)
+        for group in self.fo_optim.param_groups:
+            group["lr"] = fo_lr
+        self.fo_optim.step()
+
+        # ---- Zero-order step on the remaining parameters (unchanged behavior) ----
+        return super()._train_step_zero_order(batch, reduce_global_loss=reduce_global_loss)
 
 
 def main(cfg: TrainConfig) -> None:
@@ -233,8 +325,52 @@ def main(cfg: TrainConfig) -> None:
     log.info("Model:")
     log.info(dist_model)
 
+    # Split parameters: embedding (wte/wpe) and LM head (ff_out) train with FO
+    # (AdamW); the rest trains with ZO. We temporarily flip requires_grad off on
+    # the emb/head tensors so `build_optimizer` -> `get_param_groups` skips them.
+    emb_head_params = [p for name, p in olmo_model.named_parameters() if _is_emb_head_param(name)]
+    for p in emb_head_params:
+        p.requires_grad_(False)
+
     # Construct optimizer and learning rate scheduler.
     optim = build_optimizer(cfg, dist_model)
+
+    # Restore requires_grad and build the first-order optimizer on emb+head.
+    for p in emb_head_params:
+        p.requires_grad_(True)
+
+    # Split emb vs head so weight decay respects `decay_embeddings` (embeddings get wd=0
+    # when decay_embeddings is False, matching get_param_groups for the ZO side).
+    emb_fo_params, head_fo_params = [], []
+    for name, p in olmo_model.named_parameters():
+        if not _is_emb_head_param(name):
+            continue
+        base = name[len("module.") :] if name.startswith("module.") else name
+        if base.startswith("transformer.ff_out."):
+            head_fo_params.append(p)
+        else:
+            emb_fo_params.append(p)
+
+    emb_weight_decay = cfg.optimizer.weight_decay if cfg.optimizer.decay_embeddings else 0.0
+    fo_peak_lr = (
+        cfg.optimizer.fo_learning_rate
+        if cfg.optimizer.fo_learning_rate is not None
+        else cfg.optimizer.learning_rate
+    )
+    fo_optim = torch.optim.AdamW(
+        [
+            {"params": head_fo_params, "weight_decay": cfg.optimizer.weight_decay},
+            {"params": emb_fo_params, "weight_decay": emb_weight_decay},
+        ],
+        lr=fo_peak_lr,
+        betas=tuple(cfg.optimizer.betas),
+        eps=cfg.optimizer.eps,
+    )
+    log.info(
+        f"FO (AdamW) optimizer: {len(head_fo_params)} head + {len(emb_fo_params)} embedding tensors, "
+        f"peak_lr={fo_peak_lr}; ZO optimizer covers the remaining parameters."
+    )
+
     scheduler = build_scheduler(cfg)
 
     # Data indices file.
@@ -247,7 +383,7 @@ def main(cfg: TrainConfig) -> None:
         indices_file = gzip.open(indices_file_path, "wt")
 
     # Consolidate components into `Trainer` object.
-    with Trainer(
+    with _MixedFOZOTrainer(
         cfg=cfg,
         epoch=cfg.epoch,
         model=olmo_model,
@@ -259,6 +395,7 @@ def main(cfg: TrainConfig) -> None:
         evaluators=evaluators,
         indices_file=indices_file,
     ) as trainer:
+        trainer.fo_optim = fo_optim
         if cfg.try_load_latest_save:
             checkpoint_dir = None
             if (

@@ -79,8 +79,9 @@ optimizer:
   # --- ZOMuon параметры (из статьи для LLM) ---
   zo_muon_rank: 64
   zo_muon_step_interval: 100
-  zo_muon_num_samples: 1        # сменить на 4 для воспроизведения статьи
+  zo_muon_num_samples: 128      # q=128: 129 forward-проходов на шаг (1 center + 128 perturbations)
   zo_muon_ns_steps: 5
+  zo_muon_max_grad_norm: 1.0    # clip grad_est_norm; null = выкл.
 
 scheduler:
   name: cosine_with_warmup
@@ -105,10 +106,10 @@ save_num_unsharded_checkpoints_to_keep: 2
 
 load_path: null
 
-global_train_batch_size: 512
-device_train_microbatch_size: 4
+global_train_batch_size: 12       # 12 / 2 GPU = 6 seq/GPU
+device_train_microbatch_size: 6   # 6 × 2 GPU = 12 total
 
-max_duration: 1247322704T
+max_duration: 492000000T          # ~500M токенов ≈ 40k шагов
 
 precision: amp_bf16
 
@@ -142,7 +143,7 @@ evaluators:
       persistent_workers: true
       memmap_dtype: uint32
       paths:
-        - /home/gur_andry/data/wikitext/validation/0_00000.npy
+        - /hhh/OLMo-Zero-Order-Optimization/data/wikitext/validation/0_00000.npy
 
 data:
   pad_direction: right
@@ -158,6 +159,4 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00000.npy
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00001.npy
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00002.npy
+    - data/olmo-wiki/train/wiki-0001/0_00002.npy

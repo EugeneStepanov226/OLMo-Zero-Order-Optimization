@@ -660,6 +660,7 @@ class ZOMuon(ZeroOrderOptimizer):
         num_samples: int = 1,
         ns_steps: int = 5,
         weight_decay: float = 0.0,
+        max_grad_norm: Optional[float] = None,
     ):
         if lr < 0:
             raise ValueError(f"Invalid lr: {lr}")
@@ -671,6 +672,8 @@ class ZOMuon(ZeroOrderOptimizer):
             raise ValueError(f"Invalid num_samples: {num_samples}")
         if ns_steps < 1:
             raise ValueError(f"Invalid ns_steps: {ns_steps}")
+        if max_grad_norm is not None and max_grad_norm <= 0:
+            raise ValueError(f"Invalid max_grad_norm: {max_grad_norm}")
 
         defaults = dict(
             lr=lr,
@@ -680,6 +683,7 @@ class ZOMuon(ZeroOrderOptimizer):
             num_samples=num_samples,
             ns_steps=ns_steps,
             weight_decay=weight_decay,
+            max_grad_norm=max_grad_norm,
         )
         super().__init__(params, defaults)
         self._step_count = 0
@@ -694,10 +698,18 @@ class ZOMuon(ZeroOrderOptimizer):
             Mean absolute SPSA scalar across all ``num_samples`` samples.
             Measures the average signal strength in the probed subspace.
         grad_est_norm
-            Global L2 / Frobenius norm of the update direction
-            ``P @ M_sign`` for 2-D params (plus standard norm for 1-D),
-            before ``lr`` scaling.  Because Newton-Schulz normalizes singular
-            values to ~1, this is roughly ``sqrt(rank · n_2d_params)``.
+            Global Frobenius norm of all update directions (``P @ M_sign``
+            for 2-D params, plain norm for 1-D) **before** clipping and
+            ``lr`` scaling.  Because Newton-Schulz normalizes singular
+            values to ~1, this is roughly ``sqrt(rank · n_2d_params)``
+            when the estimator is well-conditioned.
+        grad_est_norm_clipped
+            Same norm **after** clipping by ``max_grad_norm``.  Equals
+            ``grad_est_norm`` when no clipping occurs or ``max_grad_norm``
+            is not set.
+        clip_coef
+            The scaling coefficient applied to the update direction.
+            1.0 means no clipping occurred.
         """
         return {k: torch.tensor(v) for k, v in self._last_metrics.items()}
 
@@ -816,20 +828,30 @@ class ZOMuon(ZeroOrderOptimizer):
 
     def _apply_update(self, scalars: dict[int, float], z_seed: int) -> None:
         ns_steps = self.defaults["ns_steps"]
+        max_grad_norm = self.defaults["max_grad_norm"]
         n_samples = len(scalars)
+
+        # ------------------------------------------------------------------
+        # Pass 1: compute grad norm WITHOUT storing parameter-sized tensors.
+        #
+        # Key identity for 2-D params:
+        #   ||G||_F = ||P @ M_sign||_F = ||M_sign||_F
+        # because P is column-orthonormal (P.T @ P = I).
+        # So we run NS on the tiny (rank × n_cols) matrix and measure its
+        # Frobenius norm — no need to materialise the full (m × n) G.
+        #
+        # 1-D grads are small (bias / norm shapes) and ARE cached so we
+        # avoid resampling them in Pass 2.
+        # ------------------------------------------------------------------
+        grad_1d_cache: dict[int, torch.Tensor] = {}  # only 1-D, small
         grad_sum_sq = 0.0
 
         for group, p, idx in self._flat_params():
             if not p.requires_grad:
                 continue
-            lr = group["lr"]
-            weight_decay = group["weight_decay"]
 
             if p.dim() == 2:
-                P = self.state[p]["p_mat"]  # (m, effective_rank), float32
-                effective_rank = P.shape[1]
-
-                # Accumulate low-rank gradient estimate: (1/N) Σᵢ scalarᵢ · uᵢ
+                effective_rank = self.state[p]["p_mat"].shape[1]
                 lowdim_rge = torch.zeros(
                     effective_rank, p.shape[1], device=p.device, dtype=torch.float32
                 )
@@ -837,29 +859,60 @@ class ZOMuon(ZeroOrderOptimizer):
                     u = self._get_u(p, z_seed, idx, sample_idx)
                     lowdim_rge.add_(u, alpha=scalar)
                 lowdim_rge.div_(n_samples)
-
-                # Newton-Schulz: lowdim_rge → M_sign ≈ U Vᵀ  (singular values → 1)
                 M_sign = _newtonschulz5(lowdim_rge, steps=ns_steps)
-
-                # Full update direction G = P @ M_sign, shape (m, n)
-                G = P @ M_sign
-                grad_sum_sq += G.norm().item() ** 2
-
-                p.data.add_(G.to(p.dtype), alpha=-lr)
-                if weight_decay != 0.0:
-                    p.data.mul_(1.0 - lr * weight_decay)
+                # ||P @ M_sign||_F == ||M_sign||_F  (P column-orthonormal)
+                grad_sum_sq += M_sign.norm().item() ** 2
+                # M_sign is discarded here — no parameter-sized tensor kept.
 
             else:
-                # 1-D: average the scalar gradient estimates, no orthogonalization.
                 grad_1d = torch.zeros(p.shape, device=p.device, dtype=torch.float32)
                 for sample_idx, scalar in scalars.items():
                     z = self._get_z1d(p, z_seed, idx, sample_idx)
                     grad_1d.add_(z, alpha=scalar)
                 grad_1d.div_(n_samples)
-
                 grad_sum_sq += grad_1d.norm().item() ** 2
-                p.data.add_(grad_1d.to(p.dtype), alpha=-lr)
-                if weight_decay != 0.0:
-                    p.data.mul_(1.0 - lr * weight_decay)
+                grad_1d_cache[id(p)] = grad_1d  # tiny, safe to keep
 
-        self._last_metrics["grad_est_norm"] = math.sqrt(grad_sum_sq)
+        # ------------------------------------------------------------------
+        # Gradient clipping: one scalar coefficient for the whole model.
+        # ------------------------------------------------------------------
+        total_norm = math.sqrt(grad_sum_sq)
+        if max_grad_norm is not None and total_norm > max_grad_norm:
+            clip_coef = max_grad_norm / total_norm
+        else:
+            clip_coef = 1.0
+
+        # ------------------------------------------------------------------
+        # Pass 2: recompute 2-D directions (cheap — NS on rank×n_cols only)
+        # and apply updates with the clipping coefficient baked into alpha.
+        # ------------------------------------------------------------------
+        for group, p, idx in self._flat_params():
+            if not p.requires_grad:
+                continue
+            lr = group["lr"]
+            weight_decay = group["weight_decay"]
+
+            if p.dim() == 2:
+                P = self.state[p]["p_mat"]
+                effective_rank = P.shape[1]
+                lowdim_rge = torch.zeros(
+                    effective_rank, p.shape[1], device=p.device, dtype=torch.float32
+                )
+                for sample_idx, scalar in scalars.items():
+                    u = self._get_u(p, z_seed, idx, sample_idx)
+                    lowdim_rge.add_(u, alpha=scalar)
+                lowdim_rge.div_(n_samples)
+                M_sign = _newtonschulz5(lowdim_rge, steps=ns_steps)
+                # Fuse P @ M_sign into the parameter update directly.
+                # p -= lr * clip_coef * P @ M_sign
+                p.data.addmm_(P.to(p.dtype), M_sign.to(p.dtype), alpha=-lr * clip_coef)
+            else:
+                grad_1d = grad_1d_cache[id(p)]
+                p.data.add_(grad_1d.to(p.dtype), alpha=-lr * clip_coef)
+
+            if weight_decay != 0.0:
+                p.data.mul_(1.0 - lr * weight_decay)
+
+        self._last_metrics["grad_est_norm"] = total_norm
+        self._last_metrics["grad_est_norm_clipped"] = total_norm * clip_coef
+        self._last_metrics["clip_coef"] = clip_coef

@@ -505,11 +505,13 @@ class OptimizerType(StrEnum):
     lozo = "lozo"
     zo_adam = "zo_adam"
     zo_muon = "zo_muon"
+    hybrid_zo_muon = "hybrid_zo_muon"
     ldsd_muon = "ldsd_muon"
     ldsd_sign_sgd = "ldsd_sign_sgd"
     ldsd_rl = "ldsd_rl"
     ldsd_rl_adamm = "ldsd_rl_adamm"
     ldsd_rl_sgd = "ldsd_rl_sgd"
+    fo_muon = "fo_muon"
 
 
 @dataclass
@@ -519,6 +521,13 @@ class OptimizerConfig(BaseConfig):
     weight_decay: float = 0.01
     betas: Tuple[float, float] = (0.9, 0.95)
     eps: float = 1e-5
+
+    fo_learning_rate: Optional[float] = None
+    """
+    Peak learning rate for the first-order (AdamW) optimizer that trains the embedding and LM head
+    in the hybrid FO+ZO setup (see scripts/train.py). If ``None``, falls back to ``learning_rate``.
+    The same scheduler shape is applied, just with this peak value.
+    """
 
     no_decay_norm_and_bias: Optional[bool] = None
     """
@@ -570,6 +579,48 @@ class OptimizerConfig(BaseConfig):
 
     zo_muon_ns_steps: int = 5
     """ZOMuon: number of Newton-Schulz iterations for orthogonalizing lowdim_rge."""
+
+    zo_muon_max_grad_norm: Optional[float] = None
+    """ZOMuon: clip the global Frobenius norm of all update directions to this value
+    before applying the lr-scaled step.  None = no clipping (default).
+    Recommended starting value: 1.0.  Set lower (e.g. 0.5) if grad_est_norm
+    still grows after warmup."""
+
+    # --- FOMuon (first-order Muon) ---
+
+    fo_muon_momentum: float = 0.95
+    """FOMuon: Nesterov momentum coefficient."""
+
+    fo_muon_nesterov: bool = True
+    """FOMuon: whether to use Nesterov momentum."""
+
+    fo_muon_ns_steps: int = 5
+    """FOMuon: number of Newton-Schulz iterations for gradient orthogonalization."""
+
+    fo_muon_max_grad_norm: Optional[float] = None
+    """FOMuon: clip the Frobenius norm of 2-D gradients before orthogonalization. None = no clipping."""
+
+    # --- HybridZOMuon (FO-голова + ZO-тело) ---
+
+    hybrid_fo_param_patterns: List[str] = field(default_factory=lambda: ["ff_out"])
+    """HybridZOMuon: подстроки имён параметров, которые обновляются через FO (AdamW).
+    Остальные параметры обновляются через ZO (ZOMuon).
+    Пример: ["ff_out", "wte"] → голова + эмбеддинги через FO."""
+
+    hybrid_fo_lr: float = 1e-4
+    """HybridZOMuon: learning rate для FO-части (AdamW)."""
+
+    hybrid_fo_betas: Tuple[float, float] = (0.9, 0.95)
+    """HybridZOMuon: betas для AdamW FO-части."""
+
+    hybrid_fo_eps: float = 1e-8
+    """HybridZOMuon: epsilon для AdamW FO-части."""
+
+    hybrid_fo_weight_decay: float = 0.1
+    """HybridZOMuon: weight decay для FO-части."""
+
+    hybrid_fo_max_grad_norm: Optional[float] = 1.0
+    """HybridZOMuon: gradient clipping для FO-части. None = без клиппинга."""
 
     mezo_momentum: float = 0.0
     """MeZO-only: momentum on the estimated gradient direction."""

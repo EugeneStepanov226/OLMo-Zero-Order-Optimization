@@ -908,9 +908,30 @@ class Trainer:
                 total_loss = total_loss / get_world_size()
             return total_loss
 
+        # FO-closure для HybridZOMuon: вызывается с enable_grad,
+        # backward() внутри оптимизатора синхронизирует FO-градиенты через DDP.
+        from .hybrid_optim import HybridZOMuon as _HybridZOMuon
+
+        fo_closure = None
+        if isinstance(self.optim, _HybridZOMuon):
+            autocast_device = "mps" if self.device.type == "mps" else "cuda"
+
+            def fo_closure() -> torch.Tensor:  # type: ignore[misc]
+                total_loss = torch.zeros((), device=self.device, dtype=torch.float32)
+                with torch.enable_grad():
+                    with torch.autocast(autocast_device, enabled=True, dtype=self.cfg.autocast_precision):
+                        for micro_batch in micro_batches:
+                            loss, _, _ = self.train_micro_batch(micro_batch, batch_size_in_tokens)
+                            total_loss = total_loss + loss.float()
+                total_loss.backward()
+                return total_loss.detach()
+
         for group in self.optim.param_groups:
+            # Для HybridZOMuon у каждой группы свой базовый LR (_base_lr).
+            # Для обычных оптимизаторов используем learning_rate из конфига.
+            base_lr = group.get("_base_lr", self.cfg.optimizer.learning_rate)
             group["lr"] = self.scheduler.get_lr(
-                self.cfg.optimizer.learning_rate, self.scheduler_current, self.scheduler_max
+                base_lr, self.scheduler_current, self.scheduler_max
             )
             if "max_grad_norm" in group:
                 group["max_grad_norm"] = self.scheduler.get_max_grad_norm(
@@ -921,7 +942,10 @@ class Trainer:
                     self.cfg.max_grad_norm_ratio, self.scheduler_current, self.scheduler_max
                 )
 
-        loss = self.optim.step(closure, z_seed=z_seed)  # type: ignore[call-arg]
+        if fo_closure is not None:
+            loss = self.optim.step(closure, z_seed=z_seed, fo_closure=fo_closure)  # type: ignore[call-arg]
+        else:
+            loss = self.optim.step(closure, z_seed=z_seed)  # type: ignore[call-arg]
 
         ce_batch_loss = loss.detach()
         if ce_batch_loss.device != self.device:
