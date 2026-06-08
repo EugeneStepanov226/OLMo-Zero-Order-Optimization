@@ -78,7 +78,7 @@ optimizer:
   zo_perturbation_mode: two_side
   zo_muon_rank: 64
   zo_muon_step_interval: 100
-  zo_muon_num_samples: 4
+  zo_muon_num_samples: 128
   zo_muon_ns_steps: 5
 
 scheduler:
@@ -104,7 +104,7 @@ save_num_unsharded_checkpoints_to_keep: 2
 
 load_path: null
 
-global_train_batch_size: 512
+global_train_batch_size: 12
 device_train_microbatch_size: 4
 
 max_duration: 500000000T
