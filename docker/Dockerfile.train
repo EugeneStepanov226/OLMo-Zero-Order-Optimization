@@ -1,0 +1,67 @@
+# Dockerfile для запуска обучения OLMo Zero-Order Optimization.
+# Базовый образ: PyTorch 2.4 + CUDA 12.4 (подходит для H200/H100/A100).
+#
+# Сборка:
+#   docker build -f docker/Dockerfile.train -t olmo-train .
+#
+# Запуск (2 GPU):
+#   docker run --gpus '"device=0,1"' --rm -it \
+#     -v $(pwd)/data:/workspace/data \
+#     -v $(pwd)/runs:/workspace/runs \
+#     olmo-train \
+#     torchrun --nproc_per_node=2 scripts/train.py \
+#         configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml
+#
+# Запуск в фоне (tmux внутри контейнера не нужен — используйте -d):
+#   docker run --gpus '"device=0,1"' --rm -d \
+#     -v $(pwd)/data:/workspace/data \
+#     -v $(pwd)/runs:/workspace/runs \
+#     --name olmo-train-run \
+#     olmo-train \
+#     torchrun --nproc_per_node=2 scripts/train.py \
+#         configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml
+#
+#   # Следить за логами:
+#   docker logs -f olmo-train-run
+
+FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_HOME=/usr/local/cuda
+
+# Системные зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Копируем зависимости отдельно для кэширования слоёв
+COPY pyproject.toml ./
+COPY olmo/ ./olmo/
+COPY scripts/ ./scripts/
+COPY configs/ ./configs/
+COPY tokenizers/ ./tokenizers/
+COPY conftest.py ./
+
+# Устанавливаем flash-attention и проект
+RUN pip install --no-cache-dir packaging ninja && \
+    pip install --no-cache-dir flash-attn --no-build-isolation && \
+    pip install --no-cache-dir -e ".[all]"
+
+# Данные и чекпоинты монтируются снаружи через -v
+VOLUME ["/workspace/data", "/workspace/runs"]
+
+# Конфиг передаётся как аргумент при docker run:
+#   docker run ... olmo-train configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml
+# Число GPU задаётся через NPROC (по умолчанию 2):
+#   docker run -e NPROC=4 ... olmo-train configs/...
+
+ENV NPROC=2
+
+ENTRYPOINT ["sh", "-c", "torchrun --nproc_per_node=${NPROC} scripts/train.py \"$@\"", "--"]
+CMD ["configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml"]
