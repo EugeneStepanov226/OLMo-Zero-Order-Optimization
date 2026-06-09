@@ -29,9 +29,9 @@ dry_run: false
 
 wandb:
   name: ${run_name}
-  project: olmo-wiki
+  project: zo-muon-new
   group: ${run_name}
-  entity: null
+  entity: andrey
 
 model:
   d_model: 2048
