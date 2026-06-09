@@ -88,8 +88,8 @@ optimizer:
 scheduler:
   name: cosine_with_warmup
   units: tokens
-  t_warmup: 62000000
-  t_max: 1247322704
+  t_warmup: 25000000
+  t_max: 500000000
   alpha_f: 0.1
   warmup_min_lr: 0.0
 
@@ -108,10 +108,10 @@ save_num_unsharded_checkpoints_to_keep: 2
 
 load_path: null
 
-global_train_batch_size: 512
+global_train_batch_size: 12
 device_train_microbatch_size: 4
 
-max_duration: 1247322704T
+max_duration: 500000000T
 
 precision: amp_bf16
 
@@ -144,7 +144,7 @@ evaluators:
       persistent_workers: true
       memmap_dtype: uint32
       paths:
-        - /home/gur_andry/data/wikitext/validation/0_00000.npy
+        - data/wikitext/validation/0_00000.npy
 
 data:
   pad_direction: right
@@ -160,6 +160,9 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00000.npy
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00001.npy
-    - /home/gur_andry/data/olmo-wiki/train/wiki-0001/0_00002.npy
+    - data/olmo-mix/train/00000_00000.npy
+    - data/olmo-mix/train/00001_00000.npy
+    - data/olmo-mix/train/00002_00000.npy
+    - data/olmo-mix/train/00003_00000.npy
+    - data/olmo-mix/train/00004_00000.npy
+    - data/olmo-mix/train/00005_00000.npy
