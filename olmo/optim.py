@@ -1180,6 +1180,8 @@ def build_optimizer(cfg: TrainConfig, model: nn.Module) -> torch.optim.Optimizer
             ns_steps=cfg.optimizer.fo_muon_ns_steps,
             weight_decay=cfg.optimizer.weight_decay,
             max_grad_norm=cfg.optimizer.fo_muon_max_grad_norm,
+            record_update_metrics=cfg.optimizer.record_update_metrics,
+            selective_updates=cfg.optimizer.selective_updates,
         )
     else:
         raise NotImplementedError

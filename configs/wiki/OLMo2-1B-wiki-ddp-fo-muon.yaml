@@ -98,7 +98,7 @@ tokenizer:
   truncate_direction: right
 
 save_folder: ./runs/OLMo2-1B-wiki-ddp-fo-muon
-save_overwrite: false
+save_overwrite: true
 
 save_interval: 1000
 save_interval_ephemeral: 1000

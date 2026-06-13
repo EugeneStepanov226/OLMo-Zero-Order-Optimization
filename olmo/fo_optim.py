@@ -15,7 +15,8 @@ from __future__ import annotations
 from typing import Optional
 
 import torch
-from torch.optim import Optimizer
+
+from .optim import Optimizer
 
 
 def _newtonschulz5(G: torch.Tensor, steps: int = 5, eps: float = 1e-7) -> torch.Tensor:
@@ -70,6 +71,8 @@ class FOMuon(Optimizer):
         ns_steps: int = 5,
         weight_decay: float = 0.0,
         max_grad_norm: Optional[float] = None,
+        record_update_metrics: bool = False,
+        selective_updates: bool = False,
     ):
         if lr < 0:
             raise ValueError(f"Invalid lr: {lr}")
@@ -88,7 +91,12 @@ class FOMuon(Optimizer):
             weight_decay=weight_decay,
             max_grad_norm=max_grad_norm,
         )
-        super().__init__(params, defaults)
+        super().__init__(
+            params,
+            defaults,
+            record_update_metrics=record_update_metrics,
+            selective_updates=selective_updates,
+        )
 
     @torch.no_grad()
     def step(self, closure=None):
