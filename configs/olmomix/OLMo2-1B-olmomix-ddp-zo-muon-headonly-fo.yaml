@@ -1,19 +1,19 @@
 # OLMo2-1B на olmo-mix датасете.
-# Голова (ff_out) + эмбеддеры (wte, wpe) → FO AdamW (автоматически в train.py).
-# Всё остальное (attention, FFN матрицы) → ZOMuon (ZO).
+# Только голова (ff_out) → FO AdamW. Эмбеддеры (wte, wpe) И тело → ZOMuon (ZO).
+# Управляется флагом optimizer.fo_include_embeddings: false.
 #
 # Запуск:
 #   uv run torchrun --nproc_per_node=2 scripts/train.py \
-#       configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml
+#       configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon-headonly-fo.yaml
 #
 # 1 GPU:
 #   uv run torchrun --nproc_per_node=1 scripts/train.py \
-#       configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon.yaml
+#       configs/olmomix/OLMo2-1B-olmomix-ddp-zo-muon-headonly-fo.yaml
 #
 # При OOM уменьшите device_train_microbatch_size до 2 или 1.
 # IPv6: export MASTER_ADDR=127.0.0.1
 
-run_name: OLMo2-1B-olmomix-ddp-zo-muon
+run_name: OLMo2-1B-olmomix-ddp-zo-muon-headonly-fo
 seed: 6198
 dry_run: false
 
@@ -65,7 +65,9 @@ compile: null
 optimizer:
   name: zo_muon
   learning_rate: 2.0e-4
-  # FO-часть (голова + эмбеддер) использует fo_learning_rate.
+  # Только голова (ff_out) обучается FO. Эмбеддеры идут в ZO.
+  fo_include_embeddings: false
+  # FO-часть (голова) использует fo_learning_rate.
   # Если не задан — берётся learning_rate. Обычно FO LR чуть меньше ZO.
   fo_learning_rate: 1.0e-4
   weight_decay: 0.1

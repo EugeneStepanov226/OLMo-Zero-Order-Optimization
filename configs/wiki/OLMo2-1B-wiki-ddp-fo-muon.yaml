@@ -79,7 +79,7 @@ optimizer:
   # Для языковых моделей рекомендуется начать с lr=0.02; при нестабильности
   # уменьшайте до 0.01 или включите fo_muon_max_grad_norm: 1.0.
   learning_rate: 0.02
-  weight_decay: 0.0           # weight decay через Muon не стандартен; при нужде ставьте 0.01–0.1
+  weight_decay: 0.1           # включён для борьбы с переобучением (train↓ val↑ у полного FO)
   fo_muon_momentum: 0.95
   fo_muon_nesterov: true
   fo_muon_ns_steps: 5

@@ -56,3 +56,7 @@ site/
 /wandb/
 /scratch/
 core
+
+# node / npm
+
+node_modules/

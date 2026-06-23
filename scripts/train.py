@@ -56,13 +56,15 @@ log = logging.getLogger("train")
 # Parameter-name prefixes that identify the token/positional embeddings and the
 # LM head. We split these out so they train with first-order AdamW while the
 # rest of the network trains with the configured zero-order optimizer.
-_EMB_HEAD_PREFIXES = ("transformer.wte.", "transformer.wpe.", "transformer.ff_out.")
+_HEAD_PREFIXES = ("transformer.ff_out.",)
+_EMB_PREFIXES = ("transformer.wte.", "transformer.wpe.")
 
 
-def _is_emb_head_param(name: str) -> bool:
+def _is_emb_head_param(name: str, include_embeddings: bool = True) -> bool:
     if name.startswith("module."):
         name = name[len("module.") :]
-    return any(name.startswith(p) for p in _EMB_HEAD_PREFIXES)
+    prefixes = _HEAD_PREFIXES + (_EMB_PREFIXES if include_embeddings else ())
+    return any(name.startswith(p) for p in prefixes)
 
 
 class _MixedFOZOTrainer(Trainer):
@@ -325,10 +327,14 @@ def main(cfg: TrainConfig) -> None:
     log.info("Model:")
     log.info(dist_model)
 
-    # Split parameters: embedding (wte/wpe) and LM head (ff_out) train with FO
-    # (AdamW); the rest trains with ZO. We temporarily flip requires_grad off on
-    # the emb/head tensors so `build_optimizer` -> `get_param_groups` skips them.
-    emb_head_params = [p for name, p in olmo_model.named_parameters() if _is_emb_head_param(name)]
+    # Split parameters: LM head (ff_out) and, when fo_include_embeddings is set, the
+    # embeddings (wte/wpe) train with FO (AdamW); the rest trains with ZO. We temporarily
+    # flip requires_grad off on the FO tensors so `build_optimizer` -> `get_param_groups`
+    # skips them.
+    fo_include_embeddings = cfg.optimizer.fo_include_embeddings
+    emb_head_params = [
+        p for name, p in olmo_model.named_parameters() if _is_emb_head_param(name, fo_include_embeddings)
+    ]
     for p in emb_head_params:
         p.requires_grad_(False)
 
@@ -343,7 +349,7 @@ def main(cfg: TrainConfig) -> None:
     # when decay_embeddings is False, matching get_param_groups for the ZO side).
     emb_fo_params, head_fo_params = [], []
     for name, p in olmo_model.named_parameters():
-        if not _is_emb_head_param(name):
+        if not _is_emb_head_param(name, fo_include_embeddings):
             continue
         base = name[len("module.") :] if name.startswith("module.") else name
         if base.startswith("transformer.ff_out."):

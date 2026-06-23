@@ -505,6 +505,7 @@ class OptimizerType(StrEnum):
     lozo = "lozo"
     zo_adam = "zo_adam"
     zo_muon = "zo_muon"
+    kron_zo = "kron_zo"
     hybrid_zo_muon = "hybrid_zo_muon"
     ldsd_muon = "ldsd_muon"
     ldsd_sign_sgd = "ldsd_sign_sgd"
@@ -527,6 +528,13 @@ class OptimizerConfig(BaseConfig):
     Peak learning rate for the first-order (AdamW) optimizer that trains the embedding and LM head
     in the hybrid FO+ZO setup (see scripts/train.py). If ``None``, falls back to ``learning_rate``.
     The same scheduler shape is applied, just with this peak value.
+    """
+
+    fo_include_embeddings: bool = True
+    """
+    In the hybrid FO+ZO setup (see scripts/train.py), whether the token/positional embeddings
+    are trained first-order (AdamW) alongside the LM head. If ``False``, only the LM head (``ff_out``)
+    is trained first-order and the embeddings are left to the zero-order optimizer.
     """
 
     no_decay_norm_and_bias: Optional[bool] = None
@@ -585,6 +593,33 @@ class OptimizerConfig(BaseConfig):
     before applying the lr-scaled step.  None = no clipping (default).
     Recommended starting value: 1.0.  Set lower (e.g. 0.5) if grad_est_norm
     still grows after warmup."""
+
+    # --- KronZO (Kronecker-factored zero-order, GERAD G-2025-44) ---
+
+    kronzo_step_interval: int = 50
+    """KronZO: how often the frozen Kronecker factor B is refreshed (ν). 1 = every step."""
+
+    kronzo_query_budget: int = 10
+    """KronZO: number of probe directions q evaluated per step. Cost is
+    1 + 3q forward passes (two_side) or 1 + 2q (one_side). The paper uses q = 10..50."""
+
+    kronzo_history_length: int = 10
+    """KronZO: length h of the sliding loss window for the directional-update acceptance
+    test. The step is applied only if the best probe loss beats the worst loss in the
+    window. 0 disables the test (always accept)."""
+
+    # --- ZO-vs-FO gradient alignment diagnostic ---
+
+    zo_fo_cosine_enabled: bool = False
+    """If True (only for zero-order optimizers), periodically run an extra forward+backward
+    to obtain the *true* first-order gradient at the current weights and log its cosine
+    similarity with the ZO gradient estimate (``zo_fo/cosine*`` in W&B).
+    NOTE: the extra backward stores activations/grads, so on these steps memory and time
+    rise to first-order levels — keep it throttled via ``zo_fo_cosine_interval`` and off
+    for production runs. The optimizer must implement ``fo_cosine_metrics`` (KronZO does)."""
+
+    zo_fo_cosine_interval: int = 50
+    """How often (in steps) to compute the ZO-vs-FO cosine when ``zo_fo_cosine_enabled``."""
 
     # --- FOMuon (first-order Muon) ---
 

@@ -1,0 +1,2185 @@
+===PAGE 0===
+Les Cahiers du GERAD ISSN: 0711–2440
+Zeroth-order Kronecker optimization for pretraining lan-
+guage models
+N. Allaire, S. Le Digabel, D. Orban, V. Partovi Nia
+G–2025–44
+July 2025
+Revised: September 2025
+La collection Les Cahiers du GERAD est constitu´ ee des travaux de
+recherche men´ es par nos membres. La plupart de ces documents de
+travail a ´ et´ e soumis ` a des revues avec comit´ e de r´ evision. Lorsqu’un
+document est accept´ e et publi´ e, le pdf original est retir´ e si c’est
+n´ ecessaire et un lien vers l’article publi´ e est ajout´ e.
+Citation sugg´ er´ ee :N. Allaire, S. Le Digabel, D. Orban, V. Par-
+tovi Nia (Juillet 2025). Zeroth-order Kronecker optimization for
+pretraining language models, Rapport technique, Les Cahiers du
+GERAD G– 2025–44, GERAD, HEC Montr´ eal, Canada. Version
+r´ evis´ ee: Septembre 2025
+Avant de citer ce rapport technique, veuillez visiter notre site Web
+(https://www.gerad.ca/fr/papers/G-2025-44 ) afin de mettre ` a
+jour vos donn´ ees de r´ ef´ erence, s’il a ´ et´ e publi´ e dans une revue sci-
+entifique.
+The series Les Cahiers du GERAD consists of working papers
+carried out by our members. Most of these pre-prints have been
+submitted to peer-reviewed journals. When accepted and published,
+if necessary, the original pdf is removed and a link to the published
+article is added.
+Suggested citation: N. Allaire, S. Le Digabel, D. Orban, V. Par-
+tovi Nia (July 2025). Zeroth-order Kronecker optimization for
+pretraining language models, Technical report, Les Cahiers du
+GERAD G–2025–44, GERAD, HEC Montr´ eal, Canada. Revised
+version: September 2025
+Before citing this technical report, please visit our website ( https:
+//www.gerad.ca/en/papers/G-2025-44 ) to update your reference
+data, if it has been published in a scientific journal.
+La publication de ces rapports de recherche est rendue possible grˆ ace
+au soutien de HEC Montr´ eal, Polytechnique Montr´ eal, Universit´ e
+McGill, Universit´ e du Qu´ ebec ` a Montr´ eal, ainsi que du Fonds de
+recherche du Qu´ ebec – Nature et technologies.
+D´ epˆ ot l´ egal – Biblioth` eque et Archives nationales du Qu´ ebec, 2025
+– Biblioth` eque et Archives Canada, 2025
+The publication of these research reports is made possible thanks
+to the support of HEC Montr´ eal, Polytechnique Montr´ eal, McGill
+University, Universit´ e du Qu´ ebec ` a Montr´ eal, as well as the Fonds de
+recherche du Qu´ ebec – Nature et technologies.
+Legal deposit – Biblioth` eque et Archives nationales du Qu´ ebec, 2025
+– Library and Archives Canada, 2025
+GERAD HEC Montr´ eal
+3000, chemin de la Cˆ ote-Sainte-Catherine
+Montr´ eal (Qu´ ebec) Canada H3T 2A7
+T´ el. : 514 340-6053
+T´ el´ ec. : 514 340-5665
+info@gerad.ca
+www.gerad.ca
+===PAGE 1===
+Zeroth-order Kronecker optimization for pretraining lan-
+guage models
+Nathan Allaire a, b
+S´ ebastien Le Digabela, b
+Dominique Orban a, b
+Vahid Partovi Nia a, b, c
+a D´ epartement de g´ enie ´ electrique, Polytechnique
+Montr´ eal, Montr´ eal, (Qc), Canada, H3T 1J4
+b GERAD, Montr´ eal (Qc), Canada, H3T 1J4
+c Huawei Noah’s Ark Lab, Montr´ eal (Qc), Canada,
+H3N 1X9
+nathan.allaire@polymtl.ca
+sebastien.le-digabel@polymtl.ca
+dominique.orban@gerad.ca
+vahid.partovi-nia@polymtl.ca
+July 2025
+Revised: September 2025
+Les Cahiers du GERAD
+G–2025–44
+Copyright © 2025 Allaire, Le Digabel, Orban, Partovi Nia
+Les textes publi´ es dans la s´ erie des rapports de rechercheLes Cahiers
+du GERAD n’engagent que la responsabilit´ e de leurs auteurs. Les
+auteurs conservent leur droit d’auteur et leurs droits moraux sur leurs
+publications et les utilisateurs s’engagent ` a reconna ˆ ıtre et respecter
+les exigences l´ egales associ´ ees ` a ces droits. Ainsi, les utilisateurs:
+• Peuvent t´ el´ echarger et imprimer une copie de toute publica-
+tion du portail public aux fins d’´ etude ou de recherche priv´ ee;
+• Ne peuvent pas distribuer le mat´ eriel ou l’utiliser pour une
+activit´ e ` a but lucratif ou pour un gain commercial;
+• Peuvent distribuer gratuitement l’URL identifiant la publica-
+tion.
+Si vous pensez que ce document enfreint le droit d’auteur, contactez-
+nous en fournissant des d´ etails. Nous supprimerons imm´ ediatement
+l’acc` es au travail et enquˆ eterons sur votre demande.
+The authors are exclusively responsible for the content of their re-
+search papers published in the series Les Cahiers du GERAD. Copy-
+right and moral rights for the publications are retained by the authors
+and the users must commit themselves to recognize and abide the
+legal requirements associated with these rights. Thus, users:
+• May download and print one copy of any publication from the
+public portal for the purpose of private study or research;
+• May not further distribute the material or use it for any profit-
+making activity or commercial gain;
+• May freely distribute the URL identifying the publication.
+If you believe that this document breaches copyright please contact us
+providing details, and we will remove access to the work immediately
+and investigate your claim.
+===PAGE 2===
+Les Cahiers du GERAD G–2025–44 – Revised ii
+Abstract : Training language models (LMs) under tight GPU memory budgets rules out standard
+back-propagation and motivates zeroth-order (ZO) optimization. While ZO methods have proven ef-
+fective for fine-tuning, their potential during the more memory-intensive pretraining stage has received
+little attention. We first revisit the singular-value spectra of layer gradients during pretraining and
+show that the gradient information is spread across many directions; low-rank ZO methods therefore
+potentially discard some informative components. Building on this insight, we introduce KronZO, a
+Kronecker-structured ZO optimizer that (i) explores a full-rank search subspace with state-of-the-art
+storage compression and (ii) employs a criterion-driven directional update that selectively keeps only
+informative steps. When pretraining GPT-2 Small from scratch on OpenWebText, KronZO achieves
+a markedly lower training loss than all previous ZO baselines while consuming less GPU memory.
+Although still trailing first-order methods in final loss, KronZO substantially narrows the gap at a
+fraction of their memory footprint, extending ZO optimization to larger models and longer runs and
+paving the way for memory-efficient pretraining on commodity hardware.
+Keywords : Language models; pretraining; Zeroth-Order optimization; Kronecker factorization
+Acknowledgements: The authors would like to thank Th´ eo Denorme for his valuable contribution
+to the convergence analysis presented in this work.
+===PAGE 3===
+Les Cahiers du GERAD G–2025–44 – Revised 1
+1 Introduction
+Recent scaling laws demonstrate that, when trained with the same optimization method and data, a
+larger LM (with more parameters) achieves a lower training loss and better downstream accuracy than
+a smaller LM [18].
+Consequently, the number of parameters exploded (from 340M in BERT-base [30] to 70B in modern
+LMs) while commodity GPU memory has risen from 16GB to only 80GB over the same period. The
+dominant memory bottleneck during training is not due to the model weights themselves, but to
+the activation tensors retained for back-propagation, which can increase the overall memory footprint
+of training by up to 12 times on modern LMs compared to inference [24]. Even parameter-efficient
+fine-tuning (PEFT) techniques, such as Low-Rank Adapters like LoRA [16], leave this activation cost
+unchanged because they still rely on first-order optimization and gradient computation in the backward
+pass (SGD [2], Adam [20]).
+Hardware-level approaches (model compression, quantization, pruning, knowledge distillation) al-
+leviate inference cost but do not eliminate the back-propagation memory overhead during training. ZO
+algorithms provide an alternate solution: they approximate gradients from forward evaluations alone,
+bypass back-propagation entirely and eliminate activation storage for gradient computation [27]. Clas-
+sical variants such as ZO-SGD [11] have matured theoretically [9, 25] and were recently adapted to LM
+fine-tuning through the Memory-Efficient Zeroth-Order (MeZO) algorithm [24]. Follow-up work intro-
+duced forward-gradient refinements [33] and the Low-Rank Zeroth-Order (LoZO) method [7], which
+exploits gradient low-rankness in fine-tuning to improve performance and reduce memory.
+In contrast, ZO pretraining remains largely unexplored. Allaire et al. [1] provided first evidence
+that ZO can pretrain small LMs, but plain ZO-SGD falls short at larger scales.
+We present KronZO, a new ZO method that
+• exploits a Kronecker factorization to craft memory-efficient perturbations, markedly reducing
+the storage budget relative to state-of-the-art methods;
+• employs high-dimensional perturbations to ensure broad exploration of the complex objective
+landscape;
+• introduces a novel, criterion-driven directional update that stabilizes and improves convergence
+speed in highly stochastic regimes.
+Related work
+ZO optimization, or derivative-free optimization, addresses settings where gradients are unavailable,
+unreliable, or prohibitively expensive [3]. In machine learning, ZO algorithms estimate gradients
+from finite-difference queries [6, 27], and subsequently employ optimization methods based on these
+estimates. They have proved valuable for adversarial attacks [17, 29, 34], model interpretability [8],
+hyper-parameter search [21, 28], and more recently, LM training [1, 7, 24]. This field is currently under
+active research [31, 33].
+Fine-tuning has become the de facto approach to adapt LMs for specific downstream applica-
+tions [13]. Full fine-tuning has the same memory cost as regular pretraining since the number of
+trainable parameters is the same. Although PEFT reduces the number of trainable parameters, full
+back-propagation still dominates memory use. MeZO [24] showed that ZO methods can finetune LMs
+with comparable accuracy and lower memory footprint; LoZO [7] further leverages gradient struc-
+ture in fine-tuning to surpass both MeZO and LoRA in terms of memory efficiency and convergence
+performance on fine-tuning tasks.
+Pretraining poses additional challenges: extreme dimensionality, sharper non-convexity, batch-
+dependent noise. To the best of our knowledge, beyond the first study of Allaire et al. [1], ZO pretrain-
+===PAGE 4===
+Les Cahiers du GERAD G–2025–44 – Revised 2
+ing has not been explored in the literature. KronZO fills this gap, coupling Kronecker perturbations
+with innovative ZO updates to push the frontier of scalable, memory-efficient LM pretraining.
+2 Preliminaries
+In this section, we first introduce our notation, then give a brief overview of first order and ZO
+optimization for LMs before presenting our method, KronZO.
+2.1 Notation
+Let L be the total number of layers in an LM. Matrices in layer l have ml rows and nl columns,
+l ∈ {1, 2, . . . , L}. The optimization proceeds over K iterations, indexed by k. Matrices are denoted
+Al, Bl, Ul, Vl, Zl, θl, while sets of such matrices are written in bold, e.g., Z = {Z l}L
+l=1. The set of
+matrices θ = {θl}L
+l=1 where θl ∈ Rml×nl
+corresponds to the model parameters, or weights in layer l.
+The total number of parameters is d = PL
+l=1 mlnl. For convenience, we occasionally treat matrices
+or sets of matrices as column vectors, e.g., Z ∈ Rd. The loss function to be minimized is denoted
+L. Let ξ be a random variable representing the stochasticity in batch selection, and let ξk denote its
+realization at iteration k, i.e., the mini-batch sampled at iteration k. Finally, the cardinality of a set Ω
+is denoted |Ω|.
+We consider the optimization problem
+min
+θ∈Rd
+L(θ) where L(θ) := Eξ[L(θ; ξ)] . (1)
+In an LM context, we assume that L is differentiable and has Lipchitz-continuous gradient.
+2.2 First-order optimization
+The classic way to solve (1) is to use the stochastic gradient method
+θ ← θ − α∇L(θ; ξ) (2)
+where ∇L(θ; ξ) is the stochastic gradient of the loss with respect to θ and α >0 is the step size, often
+referred to as the learning rate. At iteration k, a mini batch ξk is sampled from ξ, a forward pass gives
+the value L(θk; ξk), and the back-propagation computes ∇L(θk; ξk) using the chain rule.
+Back-propagation consumes more GPU memory than the forward pass because it must retain every
+layer output (activation) and store a gradient tensor for each weight matrix. For a batch of size |ξk|
+and L layers, the principal memory terms are
+Mact = |ξk|
+LX
+l=1
+nl
+| {z }
+activations
+, Mgrad =
+LX
+l=1
+mlnl
+| {z }
+weight gradients
+.
+Most first-order optimizers keep sFO ∈ {0, 1, 2} auxiliary buffers per parameter (e.g., momentum for
+SGD, first and second moments for AdamW). Including the weights themselves, the memory consumed
+by the optimizer state is
+Mopt,FO = (1 + sFO)
+LX
+l=1
+mlnl.
+Hence the peak first-order footprint is
+MFO = |ξk|
+LX
+l=1
+nl + (2 + sFO)
+LX
+l=1
+mlnl. (3)
+===PAGE 5===
+Les Cahiers du GERAD G–2025–44 – Revised 3
+2.3 ZO optimization
+ZO methods do not back-propagate, so they require neither Mact nor Mgrad. They store only the
+weights and a method-specific state (see sets of matrices A and B for KronZO in section 3) whose size
+is at most a fraction sZO ≤ 1 of the parameter count:
+MZO = (1 + sZO)
+LX
+l=1
+mlnl, s ZO ≤ 1. (4)
+Malladi et al. [24] report that training OPT-13B requires 12 times more memory than inference, a
+ratio consistent with (3) and with our own measurements (see Figure 6 in Section 5).
+To sidestep back-propagation and its significant memory overhead, we turn to a ZO paradigm that
+relies exclusively on loss evaluations.
+Finite differences
+The most straightforward ZO technique is to estimate directional derivatives by finite differences [11],
+namely the Random Gradient Estimator (RGE)
+b∇L(θ; ξ) := L(θ + ϵZ; ξ) − L(θ − ϵZ; ξ)
+2ϵ Z, (5)
+where Z ∼ N(0, Id) ∈ Rd, and ϵ >0 is a small perturbation step size called the smoothing parameter.
+In order to reduce the variance inherent to RGE (5), it can be interesting to average the estimator
+over q randomly sampled directions Zi with q-RGE
+b∇qL(θ; ξ) := 1
+q
+qX
+i=1
+L(θ + ϵZi; ξ) − L(θ − ϵZi; ξ)
+2ϵ Zi, (6)
+where each Zi ∼ N(0, Id) ∈ Rd and q is the query budget .
+When q = 1, (6) reduces to (5). Since lim ϵ→0
+L(θ+ϵZ;ξ)−L(θ−ϵZ;ξ)
+2ϵ = Z⊤∇L(θ; ξ) in vectorized
+notation, (5) can be seen as the projection of the stochastic gradient on Z. Since Z comes from a
+standard normal distribution, (5) and (6) are non-biased estimators of the stochastic gradient:
+E[ b∇L(θ; ξ)] = E[ b∇qL(θ; ξ)] = ∇L(θ; ξ).
+At each iteration, the parameters are updated similarly to (2):
+θk+1 = θk − α b∇L(θk; ξk). (7)
+Malladi et al. [24] use (5) and (6) to finetune LMs with MeZO.
+For convenience, we also introduce the layer-wise notation of (5) and (6)
+b∇L(θl; ξ) := L(θl + ϵZ l; ξ) − L(θl − ϵZ l; ξ)
+2ϵ Z l, l = 1, 2, . . . , L (8)
+b∇qL(θl; ξ) := 1
+q
+qX
+i=1
+L(θl + ϵZ l
+i; ξ) − L(θl − ϵZ l
+i; ξ)
+2ϵ Z l
+i l = 1, 2, . . . , L, (9)
+where θl ∈ Rml×nl
+are the layer parameters. Thus Z l and Z l
+i ∈ Rml×nl
+. Without additional effort
+for storing Z l efficiently, the memory required to run RGE or q-RGE is O(mlnl) for each layer l,
+which corresponds to sZO = 1 in (4). In MeZO, only the seed to generate Z l is stored, and it can
+be regenerated from this seed on-the-fly during computations (thus sZO ≪ 1). Despite reducing the
+memory costs, the regeneration process creates additional floating points operations.
+===PAGE 6===
+Les Cahiers du GERAD G–2025–44 – Revised 4
+Low-rank ZO
+In MeZO, Z l ∈ Rml×nl
+has very likely full rank, i.e., rank(Z l) ≈ min{ml, nl}. Based on the observation
+that gradients exhibit a low-rank structure during fine-tuning, Chen et al. [7] introduced LoZO to align
+the structure of the stochastic gradient estimator with that of the real stochastic gradient. In their
+work, Z l
+i = U l
+i (V l)⊤, where U l ∈ Rml×r, V l ∈ Rnl×r with 0 < r ≪ min{ml, nl}, both sampled
+independently from a standard Gaussian distribution. The layer-wise gradient estimator is
+b∇LoZO
+q L(θl; ξ) :=
+qX
+i=1
+L(θl + ϵU l
+i (V l)⊤; ξ) − L(θl − ϵU l
+i (V l)⊤; ξ)
+2ϵ
+U l
+i (V l)⊤
+r . (10)
+The scaling 1 /r in (10) makes the gradient estimator unbiased. The matrix U l
+i is sampled q times
+at every iteration for each layer, while V l is refreshed once every ν iteration (ν ∈ N>0) for each layer.
+This way, (10) explores the subspace defined by V l for ν steps. Since rank( U l) ≈ r and rank(V l) ≈ r,
+rank(U lV l⊤) ≈ r, and the perturbation has low rank.
+LoZO requires storing all U l
+i and V l for each layer, for a memory cost of O(mlr + nlr). With a
+typical attention layer size of 784 × 2,304 (GPT-2 Small, BeRT-base), MeZO needs to store roughly
+2 × 106 additional floats per layer, while LoZO only needs to store 784 × r + 2,304 × r floats, which is
+about 10 4 with the typical value r = 4. LoZO showed state-of-the-art fine-tuning efficiency on a large
+family of tasks and LMs.
+Studies on intrinsic dimension in LMs [22, 23] show that stochastic gradients collapse into a low-
+dimensional subspace during fine-tuning, making low-rank ZO optimizers such as LoZO highly effective.
+These findings rely on analyzing the singular-value spectrum (the ordered set of singular values) of each
+layer’s gradient matrix, which in fine-tuning is sharply peaked and therefore concentrates most of the
+information in only a few directions. Figure 1 confirms this behavior on GPT-2: as fine-tuning proceeds
+on the Shakespeare dataset, more singular values shrink while a handful remain large, signaling an
+increasingly low-rank structure.
+200 400 600 800
+Singular Value Index (descending)
+10 6
+10 5
+10 4
+10 3
+10 2
+10 1
+100
+Singular Value
+Embedding Layer
+Step 0
+Step 250
+Step 500
+Step 750
+Step 1000
+200 400 600 800
+Singular Value Index (descending)
+10 6
+10 5
+10 4
+10 3
+10 2
+10 1
+Singular Value
+Attention Layer
+Step 0
+Step 250
+Step 500
+Step 750
+Step 1000
+200 400 600 800
+Singular Value Index (descending)
+10 6
+10 5
+10 4
+10 3
+10 2
+10 1
+Singular Value
+MLP Layer
+Step 0
+Step 250
+Step 500
+Step 750
+Step 1000
+Singular Value Spectra - Finetuning Phase
+Figure 1: Evolution of stochastic gradients spectra during GPT-2 fine-tuning on the Shakespeare dataset. At early steps,
+the purple and dark-blue curves are relatively flat, with several high singular values. At step 1,000, the yellow curve
+still retains a handful of high singular values but drops off sharply: information concentrates rapidly in a few directions,
+evidencing low-rank collapse.
+By contrast, Figure 2 shows that during pretraining the spectrum remains comparatively flat:
+although a handful of directions still carry the largest singular values, many others exhibit mid-range
+magnitudes, indicating that information is spread across a wide set of modes.
+This qualitative gap suggests that low-rank ZO methods, while effective for fine-tuning, may not be
+suitable for pretraining. In such settings, high-rank ZO methods are more appropriate, as supported
+===PAGE 7===
+Les Cahiers du GERAD G–2025–44 – Revised 5
+200 400 600 800
+Singular Value Index (descending)
+10 4
+10 3
+10 2
+10 1
+Singular Value
+Embedding Layer
+Step 0
+Step 2500
+Step 5000
+Step 7500
+Step 9750
+200 400 600 800
+Singular Value Index (descending)
+10 6
+10 5
+10 4
+10 3
+10 2
+10 1
+Singular Value
+Attention Layer
+Step 0
+Step 2500
+Step 5000
+Step 7500
+Step 9750
+200 400 600 800
+Singular Value Index (descending)
+10 5
+10 4
+10 3
+10 2
+10 1
+Singular Value
+MLP Layer
+Step 0
+Step 2500
+Step 5000
+Step 7500
+Step 9750
+Singular Value Spectra - Pre-training Phase
+Figure 2: Evolution of stochastic gradients spectra in GPT-2 pretraining. During early steps, the purple and dark-blue
+curves show a very sharp descent. At final steps, the yellow curve is flatter, indicating a broader spectrum.
+by our results in Section 5. Since almost no singular value is exactly zero, the algebraic rank remains
+nearly full at each step. To gauge the true dimensionality of pretraining gradients, we therefore turn
+to effective-rank measures instead.
+Spectral structure of pretraining gradients
+In this section, we compare the widely used stable rank with the participation ratio (PR) and show
+that the former can underestimate dimensionality, whereas the latter more accurately captures the
+richness of LM stochastic gradients.
+Stable rank
+For a matrix A ∈ Rm×n with singular values {σi}µ
+i=1, where µ = min(m, n) the stable rank is
+srank(A) = ∥A∥2
+F
+∥A∥2
+2
+=
+Pµ
+i=1 σ2
+i
+maxµ
+i=1 σ2
+i
+. (11)
+Throughout this section, we call λi = σ2
+i the energy of singular direction i, and (λ1, . . . , λµ) the energy
+vector with total energy Pµ
+i=1 λi.
+Although continuous, the stable rank is driven by the largest singular value and can mask numer-
+ous medium-energy directions. Take D = diag
+ 
+100, 60, . . . ,60
+
+where 60 is repeated 19 times; thus
+rank(D) = 20. D has a structure similar to pretraining gradients: one high singular value, and many
+medium-sized. Its energy vector is λ = (100 2, 19 × 602) and Pµ
+i=1 λi = 78 400. Nineteen medium
+directions therefore carry 68 400/78 400 ≈ 87% of the energy, yet
+srank(D) = 10 000 + 19× 3 600
+10 000 ≈ 7.8,
+i.e., only 40% of the true rank. Figure 3 echoes this behavior: the stable-rank curve of GPT-2 gradients
+suggests an overly optimistic low rank during pretraining.
+Participation ratio
+To capture all energetic directions, we adopt the participation ratio (PR) [10], defined on λi = σ2
+i for
+i = 1, 2, . . . , µ:
+pr(A) =
+ Pµ
+i=1 λi
+2
+Pµ
+i=1 λ2
+i
+=
+ Pµ
+i=1 σ2
+i
+2
+Pµ
+i=1 σ4
+i
+. (12)
+===PAGE 8===
+Les Cahiers du GERAD G–2025–44 – Revised 6
+0 2000 4000 6000 8000 10000
+Training Step
+2
+4
+6
+8
+10
+12
+14
+16
+18Effective Rank (Stable Rank)
+Embedding Layers (2 layers)
+Range
+Average
+Minimum
+Maximum
+0 2000 4000 6000 8000 10000
+Training Step
+1
+2
+3
+4
+5
+6
+7Effective Rank (Stable Rank)
+Attention Layers (6 layers)
+Range
+Average
+Minimum
+Maximum
+0 2000 4000 6000 8000 10000
+Training Step
+1
+2
+3
+4
+5
+6Effective Rank (Stable Rank)
+Mlp Layers (6 layers)
+Range
+Average
+Minimum
+Maximum
+Effective Rank Evolution by Layer Type - Stable Rank
+Figure 3: Stable rank (11) of GPT-2 gradients during pretraining. Because it tracks the largest singular values, it indicates
+a misleadingly low dimensionality across layer types.
+As the inverse Herfindahl index [15], the PR estimateshow many singular directions carry non-negligible
+energy. Applying (12) to matrix D from the previous section,
+pr(D) = (10 000 + 19× 3 600)2
+10 0002 + 19 × 3 6002 ≈ 17.8,
+far closer to the algebraic rank of 20 and more than double the stable-rank value. Figure 4 confirms
+this trend in real gradients: during pretraining, the PR rises to roughly 30% of the layer width.
+0 2000 4000 6000 8000 10000
+Training Step
+25
+50
+75
+100
+125
+150
+175
+200
+225Effective Rank (Participation Ratio)
+Embedding Layers (2 layers)
+Range
+Average
+Minimum
+Maximum
+0 2000 4000 6000 8000 10000
+Training Step
+0
+20
+40
+60
+80
+100Effective Rank (Participation Ratio)
+Attention Layers (6 layers)
+Range
+Average
+Minimum
+Maximum
+0 2000 4000 6000 8000 10000
+Training Step
+0
+50
+100
+150
+200
+250Effective Rank (Participation Ratio)
+Mlp Layers (6 layers)
+Range
+Average
+Minimum
+Maximum
+Effective Rank Evolution by Layer Type - Participation Ratio
+Figure 4: Participation ratio (Equation 12) of the same gradients. Many more directions are energetically relevant,
+contradicting the low-rank impression given by the stable rank.
+Because the PR remains sensitive to medium-sized singular values, it delivers a much more faithful
+effective rank for LM pretraining gradients, whose spectrum is broad. Although each subplot is noisy
+and not strictly monotonic, the overall upward trend of both the stable-rank and participation-ratio
+in Figures 3 and 4 shows that pretraining stochastic gradients do not have low-rank; they begin at a
+moderate rank and increase steadily as training progresses.
+Consequently, ZO methods that limit updates to a tiny subspace (e.g., LoZO) are ill-suited to
+pretraining, whereas full-rank schemes are better aligned with the true dimensionality. This observation
+is consistent with the results reported in Section 5, where full-rank methods outperform their low-rank
+===PAGE 9===
+Les Cahiers du GERAD G–2025–44 – Revised 7
+counterparts in pretraining. However, MeZO incurs a significant overhead: it must either store the
+entire matrix Z or regenerate it from the random seed at the cost of extra flops, an impractical choice
+for long-running tasks such as pretraining.
+To cope with the broad subspace revealed by the PR while keeping memory use and flops manage-
+able, we turn to KronZO, a full-rank ZO optimizer that retains all informative directions through a
+lightweight Kronecker parameterization.
+3 ZO Kronecker optimization (KronZO)
+In this section, we present KronZO, our proposed ZO Kronecker optimization method for pretraining
+LMs. Recall that the Kronecker product of A =
+
+
+a11 a12 · · ·a1n1
+a21 a22 · · ·a1n2
+... ... . . . ...
+am11 am12 · · ·am1n1
+
+ ∈ Rm1×n1 and B ∈
+Rm2×n2 is defined as
+A ⊗ B =
+
+
+a11B a 12B · · ·a1n1 B
+a21B a 22B · · ·a1n1 B
+... ... . . . ...
+am11B a m12B · · ·am1n1 B
+
+ ∈ Rm1m2×n1n2 .
+The Kronecker product possesses several useful algebraic properties; see [12] for a comprehensive
+overview. In this work, we focus on its rank-preserving property:
+rank(A ⊗ B) = rank(A) × rank(B). (13)
+The Kronecker product has many applications in machine learning, notably thanks to its very
+efficient and flexible factorizations in CNNs [14]. We use this formulation to generate compact, full-
+rank random perturbations in KronZO.
+KronZO is innovative in two ways. First, its compression is more efficient than LoZO (see
+Algorithm 1), further reducing memory overhead, and the sampled directions are richer, which is key
+in pretraining. Second, its innovative, criterion-based parameters update makes it more efficient
+than previous ZO methods. In Algorithm 2, the matrix Bl is updated every ν iterations, which is the
+same behavior as ν for V l in LoZO. The query budget q is the same as parameter q in (10): at each
+iteration, q random perturbations are sampled independently. However, the way those perturbations
+are managed is different from (6) and (10), see Section Parameters update.
+Compression
+For each layer l, KronZO generates and stores two Kronecker factors Al ∈ Rml
+1×nl
+1 and Bl ∈ Rml
+2×nl
+2
+such that ml
+1ml
+2 = ml and nl
+1nl
+2 = nl to form perturbation Z l = Al ⊗ Bl ∈ Rml×nl
+. The routine
+ChooseKronDims (Algorithm 1) enforces these dimensionality constraints: it calls BestPair, which
+returns the two divisors of an integer closest to its square root, falling back to (1 , n) if the integer is
+prime (which is generally not the case in LMs). In short, ChooseKronDims selects the shapes of Al
+and Bl so that each factor is as close to square as possible. For example, a weight matrix of size 768
+× 2,304 yields ( ml
+1, ml
+2) = (24 , 32) and ( nl
+1, nl
+2) = (48 , 48). In Table 1, we compare the compression
+rates between the three methods on a typical attention layer of the GPT-2 model.
+As highlighted in Section Spectral structure of pretraining gradients, the pretraining task requires
+exploring the full optimization space. Thus, low-rank methods such as LoZO are less tailored for this
+task. Using (13), since Al and Bl almost certainly have full rank, Al ⊗ Bl also almost certainly has full
+===PAGE 10===
+Les Cahiers du GERAD G–2025–44 – Revised 8
+rank. Similarly to MeZO, this allows the perturbation to span the full optimization space. Therefore,
+KronZO outperforms the memory efficiency of LoZO, and gives insightful information on the complete
+optimization space, like MeZO.
+Algorithm 1 Approximate Square Kronecker Factorization Strategy for KronZO
+1: function BestPair(n)
+2: root ← ⌊√n⌋
+3: for offset = 0 to root do
+4: for cand ∈ {root − offset, root + offset} do
+5: if cand ≥ 1 and n mod cand = 0 then
+6: return (cand, n/cand)
+7: end if
+8: end for
+9: end for
+10: return (1, n) ▷ Fallback for prime numbers
+11: end function
+12: function ChooseKronDims(ml, nl)
+13: ( m1, m2) ← BestPair(ml) ▷ Row factorization
+14: ( n1, n2) ← BestPair(nl) ▷ Column factorization
+15: return (m1, m2, n1, n2)
+16: end function
+Constraint: m1 × m2 = ml and n1 × n2 = nl
+Objective: Minimize |m1 −
+√
+ml| + |m2 −
+√
+ml| + |n1 −
+√
+nl| + |n2 −
+√
+nl|
+Table 1: Storage cost and compression rates for MeZO, LoZO and KronZO on a typical attention layer in GPT-2. For
+LoZO, we choose r = 4. Our method achieves better compression rates while retaining expressive perturbations.
+Method Sampling structure Parameters stored Compression Example size
+MeZO Full matrix Zl mn 1 768 × 2304
+LoZO Low rank U l, V l mr + nr 150 U l : 768×4, V l : 2304×4
+KronZO Kron. factors Al, Bl m1n1 + m2n2 650 Al : 24×48, Bl : 32×48
+Parameters update
+The other major innovation in KronZO is in the way parameters are updated. In the regular q-
+RGE (6), q random perturbations are sampled, and the stochastic gradient estimators are computed
+and averaged, which results in 2 q evaluations of L. Some inappropriate random perturbations can
+dominate promising ones, leading to a poor averaged estimator in practice.
+In KronZO (Algorithm 2), we iteratively choose a perturbation that results in the largest decrease
+in the objective. For this purpose, at iteration k, we sample a fresh batch ξk (Line 4) and B if
+k % ν = 0 (Line 6). Then, we generate q random perturbations Ai, (i = 1, 2, . . . , q) and compute the
+projection of the stochastic gradient on Zi = Ai ⊗B: ciZi (Line 10) before computing L(θk −αciZi; ξk)
+(Line 11). We keep only the best of those q directions (Lines 12-14), i.e., the lowest of the evaluated
+losses. The way KronZO samples perturbations can be seen as a lucky RGE: we only use one direction
+to update, but this direction is competing against q − 1 others. It is therefore a biased perturbation,
+and may be a descent direction. This strategy costs 3 q evaluations of the objective per iteration,
+which is more expensive than (6) but gives richer directions. We illustrate this mechanism in Figure 5.
+With the same five random directions, the averaging rule blends useful and misleading signals, so
+its gradient estimator diverges from the true gradient. KronZO evaluates every candidate, picks the
+single direction that yields the largest objective decrease, and produces an estimate that tracks the true
+descent direction more closely. In high-dimensional spaces, e.g., pretraining, this dilution effect grows:
+the probability that informative directions are drowned out by many irrelevant ones rises, whereas
+KronZO still retains the best-performing direction. Although the stochastic gradient estimate used by
+KronZO is biased (whereas the q-RGE estimator in (6) is not), the perturbation-selection mechanism
+===PAGE 11===
+Les Cahiers du GERAD G–2025–44 – Revised 9
+markedly improves convergence. As shown in Section 5, this strategy achieves a substantially lower
+loss than both (6) and the low-rank variant (10) under the same query budget.
+0.4 0.5 0.6 0.7 0.8 0.9
+0.4
+0.3
+0.2
+0.1
+0.0
+0.1
+2D Objective Function & True Gradient
+Current point
+True gradient
+0.4 0.5 0.6 0.7 0.8 0.9
+0.3
+0.2
+0.1
+0.0
+0.1
+Averaging Approach (MeZO/LoZO)
+Current point
+Random perturbations Zi
+True gradient
+Averaging estimator (
+q
+i = 1
+ciZi)
+0.4 0.5 0.6 0.7 0.8 0.9
+0.3
+0.2
+0.1
+0.0
+0.1
+Directional Approach (KronZO)
+Current point
+Random perturbations Zi
+Best perturbation Zbest
+True gradient
+Directional estimator cbestZbest
+0.40 0.45 0.50 0.55 0.60 0.65 0.70
+0.30
+0.25
+0.20
+0.15
+0.10
+0.05
+0.00
+0.05
+0.10
+Update Steps Comparison
+Current point
+True gradient step
+Averaging update ( error =5.395)
+Directional update ( error =2.743)
+Figure 5: Directional versus averaging updates on a two dimensional Rosenbrock example (same five random directions
+in all panes). Top-left: objective contours and true gradient (red). Top-right: q-RGE/averaging—individual perturbations
+(black) and their mean estimator (blue). Bottom-left: KronZO keeps only the best perturbation (orange) and forms its
+directional estimator (green). Bottom-right: parameter-update vectors: the directional step lies much closer to the true
+gradient step than the averaged one.
+Loss landscapes are highly non-convex, containing many local minima and exhibiting sensitivity to
+noise due to batch variability. Since the chosen perturbation direction depends on the current batch
+(which may differ significantly from others) consistently updating along the best batch-dependent
+direction can be unreliable. Moreover, we only sample a small number of perturbations ( q = 10 to
+50), which is negligible compared to the dimensionality of the model. As a result, the selected best
+perturbation may not accurately reflect the overall landscape, potentially leading to suboptimal, or
+even stale updates that are uncorrelated with true descent.
+To mitigate this, we compare the current best loss (over the current batch) to a sliding window of
+the past h losses over previous batches (Line 16). If it improves upon the worst loss in the window, we
+update the parameters (Line 17). Otherwise, we consider the iteration a failure and skip the update.
+Empirically, such failures occur in approximately 10% of iterations. In both cases, the window is
+refreshed with current best loss replacing the maximum loss of the window (Line 19). We term this
+strategy (perturbation selection and acceptance) a directional update: parameters are advanced only
+when a single, carefully vetted direction, chosen for its within-batch effectiveness and cross-batch
+===PAGE 12===
+Les Cahiers du GERAD G–2025–44 – Revised 10
+robustness, outperforms all q others, ensuring that the step aligns with the true descent geometry
+rather than averaging random perturbations.
+Algorithm 2 Kronecker ZO optimization (KronZO)
+1: Input: objective L, step budget K, smoothing parameter ϵ, learning rate α, sampling interval ν, sampling strategy
+S(m, n), query budget q, history length h.
+2: Init: ChooseKronDims(ml, nl) for each layer l ▷ see Algorithm 1
+3: for k = 0, 1, . . . , K− 1 do
+4: Sample fresh batch ξk
+5: Set Lbest = L(θk; ξk), cbest = ∅, Zbest = ∅
+6: if k % ν = 0 then sample B = {Bl}L
+l=1 : ml
+2 × nl
+2 ▷ refresh B
+7: end if
+8: for i = 1, 2, . . . qdo
+9: Sample Ai = {Al
+i}L
+l=1 : ml
+1 × ml
+2 and define Zi = Ai ⊗ B
+10: Compute ci = L(θ + ϵZi; ξk) − L(θ − ϵZi; ξk)
+2ϵ
+11: Compute Li = L(θk − αciZi) ▷ evaluate at candidate update (7)
+12: if Li < Lbest then
+13: Set Lbest = Li, cbest = ci, Zbest = Zi
+14: end if
+15: end for
+16: if Lbest ≤ max{Lk−1, Lk−2, . . . ,Lk−h} then
+17: Update θ ← θ − αcbestZbest
+18: end if
+19: Update history: max {Lk−1, Lk−2, . . . ,Lk−min{h,k}} ← Lbest
+20: end for
+For each method, Table 2 indicates the frozen component that remains fixed for the next ν opti-
+mization steps for each layer, the corresponding set of admissible perturbations, i.e., the linear subspace
+S explored during that window, dim( S): the number of degrees of freedom, and the typical rank of a
+single update drawn from S.
+Table 2: Comparison of the optimization subspaces induced by MeZO, LoZO and KronZO per layer of the model.
+Method Frozen for ν steps Subspace S dim(S) Perturbation rank
+MeZO – {Zl ∈ Rml×nl
+} mlnl min(ml, nl)
+LoZO V l ∈ Rnl×r {U lV l⊤, Ul ∈ Rml×r} mlr ≤ r
+KronZO Bl ∈ Rml
+2×nl
+2 {Al ⊗ Bl, Al ∈ Rml
+1×nl
+1 } ml
+1nl
+1 rank(Al) rank(Bl)
+MeZO does not freeze anything, so each step is sampled from the full parameter space of size mlnl
+for each layer, and rank min( ml, nl), which guarantees maximal directional coverage. This benefit
+comes at a cost: either MeZO stores the entire perturbation tensor (memory–intensive) or it keeps
+only the random seed and regenerates the tensor on demand (memory–light but requiring additional
+flops).
+LoZO freezes a right factor V l ∈ Rnl×r. During the next ν steps every perturbation has the form
+U l
+i (V l)⊤, confining optimization to a low-rank subspace of dimension mlr. Because rank( U l
+i (V l)⊤) ≤
+r ≪ nl, LoZO strongly reduces variance and memory, yet necessarily ignores any gradient compo-
+nent not in span( V l), a bias that can slow down pretraining where informative subspaces are high-
+dimensional.
+KronZO freezes one Kronecker factor Bl ∈ Rml
+2×nl
+2 and varies only Al ∈ Rml
+1×nl
+1 . The admissible
+updates Z l = Al ⊗Bl live in a structured subspace of dimension ml
+1nl
+1 ≪ mlnl (strong compression) but
+still almost surely have full rank whenever Al and Bl have full rank (13). This Kronecker compression
+keeps the memory overhead negligible while preserving rich directional coverage, offering a better
+bias–variance trade-off than LoZO and explaining KronZO’s slightly faster convergence and lower final
+loss in pretraining, even without the directional update, see Section Comparison with state-of-the-art.
+===PAGE 13===
+Les Cahiers du GERAD G–2025–44 – Revised 11
+In short, both LoZO and KronZO optimize within a fixed lower-dimensional subspace for ν itera-
+tions: LoZO by explicit rank truncation, KronZO by Kronecker structure. Yet, only KronZO retains
+the potential for full-rank updates, which is crucial for thoroughly exploring the high-dimensional loss
+landscape encountered during large-scale pretraining.
+4 Convergence results
+In this section, we derive convergence results for KronZO. As noted in Section Parameters update,
+when q >1, the stochastic-gradient estimator used by KronZO is biased. Although this bias speeds up
+the optimization process in practice, see Section Computational results, unbiasedness is required for
+our convergence arguments [7, 24]. Therefore, we restrict attention to the case q = 1, i.e., one sampled
+direction per iteration. For clarity, we also assume that every step is accepted; equivalently, the if
+branch at Line 16 of Algorithm 2 is never entered and the update in Line 17 always occur. Finally, we
+consider a single-layer model with m × n parameters, but the analysis still holds with multiple layers.
+Our convergence analysis builds upon the following standard regularity conditions.
+Assumption 1. The stochastic gradient ∇L(θ; ξ) satisfies:
+1. Lipschitz continuity .There exists L >0 such that for all ( θ1, θ2) ∈ Rm×n,
+∇L(θ1) − ∇L(θ2)
+
+F ≤ L
+θ1 − θ2
+
+F .
+2. Unbiasedness and bounded variance.There exists σ ≥ 0 such that for all θ,
+Eξ[∇L(θ; ξ)] = ∇L(θ), Eξ
+h
+∥∇L(θ; ξ) − ∇L(θ)∥2
+F
+i
+≤ σ2.
+In particular, Assumption 1 ensures thatL is continuously differentiable with a Lipschitz continuous
+gradient, which is a standard requirement in stochastic gradient analysis. Under the setup introduced
+in this section, the optimization problem reads
+θ∗ ∈ arg min
+θ∈Rm×n
+Eξ[L(θ; ξ)] ,
+which is (1).
+It is worth noting that (1) corresponds to the case of a fixed training dataset, whose randomness
+is represented by ξ. The complete formulation is
+θ∗ ∈ arg min
+θ∈Rm×n
+EX,Y
+
+Eξ|(X,Y )[L(θ; ξ, X, Y)]
+
+where the outer expectationis taken with respect to the data-generating distribution of (X, Y), that
+is, the unknown probability distribution on the input–output pairs from which training datasets are
+drawn. The inner expectation is then taken over any additional source of randomness ξ (such as
+minibatch sampling, data augmentation, or dropout) conditional on having fixed a particular dataset
+(X, Y). For simplicity, it is common to work only with the inner expectation, i.e., to solve the problem
+for a given dataset, which reduces to (1).
+Consider q = 1 and let A ∈ Rm1×n1 , B ∈ Rm2×n2 such that m1m2 = m, n1n2 = n and ϵ > 0.
+Denote Z = A ⊗ B ∈ Rm×n, the KronZO estimator reads
+b∇L(θ; ξ, Z) = L(θ + ϵZ) − L(θ − ϵZ)
+2ϵ Z. (14)
+KronZO resamples B every ν iterations and A at each iteration, then updates
+θ ← θ − α b∇L(θ; ξ, Z). (15)
+===PAGE 14===
+Les Cahiers du GERAD G–2025–44 – Revised 12
+We first show in Lemma 1 that under this setup, the stochastic-gradient estimator (14) is unbiased,
+which is necessary for the analysis. Then, following the analysis in LoZO [7], we show that KronZO is
+a subspace minimization method that solves a sequence of K subproblems, each one for ν iterations.
+We bound the expected improvement on a single subproblem (27) and use it to establish Theorem 1.
+Complete details are provided in Appendix.
+Theorem 1. Let K the number of subproblems solved and T = Kν the total number of iterations. Let
+Assumption 1 be satisfied. Denote ˜L = ∥B∥2
+F L and ¯L = EB
+h
+˜L
+i
+= m2n2L. Denote ˜σ2 = ∥B∥2
+F σ2 and
+¯σ2 = EB
+
+˜σ2
+= m2n2σ2. If the step condition
+0 < α <−28 +
+√
+282 + 144
+288 ¯Lm1n1ν
+holds, the iterates {θt}t∈[0,T ] generated by KronZO respect the following bound:
+β m2n2
+K
+K−1X
+k=0
+∥∇L(θkν )∥2
+F ≤ L(θ0) − L∗
+T α
++ 536ν2 ¯L4α2ϵ2m2
+1n2
+1 + 24ν3 ¯L2α3 ¯σ2
++
+¯L2m1n1ϵ2
+2 + 66¯L3m3
+1n3
+1ϵ2α + 12¯σ2 ¯Lm1n1α (16)
+where β =
+  1
+4 − 28 ¯Lm1n1να − 144α2ν2m2
+1n2
+1 ¯L2
+> 0.
+See proof on page 22. Inequality (16) bounds a standard stationarity surrogate, namely the average
+squared gradient along the iterates:
+GK := 1
+K
+K−1X
+k=0
+∥∇L(θkν )∥2
+F ≤ CT
+for some nonnegative quantity CT that depends on T = Kν and on the algorithmic parameters. In the
+absence of specific choices for α and ϵ, the right-hand side need not vanish as T → ∞, so convergence
+to stationarity is not guaranteed.
+If α = ϵ = T −1/2 and T is large enough to satisfy the step size condition 0 < α = T −1/2 <
+−28+
+√
+282+144
+288 ¯Lm1n1ν (so that β >0), then
+β m2n2
+K
+K−1X
+k=0
+∥∇L(θkν )∥2
+F ≤ L(θ0) − L∗
+T 1/2 + 536 ν2 ¯L4 m2
+1n2
+1
+T 2 + 24 ν3 ¯L2 ¯σ2
+T 3/2
++
+¯L2 m1n1
+2T + 66 ¯L3 m3
+1n3
+1
+T 3/2 + 12 ¯σ2 ¯L m1n1
+T 1/2 = O
+
+T −1/2
+
+. (17)
+Consequently, for sufficiently small α and ϵ, the average squared gradient norms of KronZO’s iterates
+admit an upper bound that decays to zero at a sublinear rate as T grows, coinciding with the LoZO
+rate [7].
+This decay has the usual stationarity implications. Let GK be as above. From (17), GK → 0 as
+T → ∞, hence
+min
+0≤k<K
+∥∇L(θkν )∥2
+F ≤ GK → 0,
+so at least one iterate is asymptotically stationary. Moreover, by Markov’s inequality, for any ε >0,
+1
+K
+
+
+0 ≤ k < K: ∥∇L(θkν )∥2
+F > ε
+	 ≤ GK
+ε → 0,
+which shows that the algorithm spends an increasing fraction of iterations near stationarity. These
+guarantees are in the average sense and do not by themselves imply convergence of the entire sequence
+{θt}. In practice, choosing ϵ small and a diminishing step size (e.g., αt ∝ t−1/2) ensures the average
+stationarity measure converges to zero.
+===PAGE 15===
+Les Cahiers du GERAD G–2025–44 – Revised 13
+5 Computational results
+In this section, we present our setup and results on KronZO versus existing state-of-the-art ZO meth-
+ods.
+Experimental setup
+All experiments were run on a single NVIDIA A100 with 80GB of GPU memory. We pretrained GPT-2
+Small (125M parameters) [26] on the OpenWebText corpus [5] with a step budget K = 10, 000.
+The model uses a batch size of 32 and a context length of 1024, following the reference configuration
+in nanoGPT [19], with no dropout and no bias terms. Hyper-parameters are selected by a coarse grid
+search: ϵ ∈ [10−4, 5 × 10−4]; a cosine learning-rate schedule with initial value α = 3 × 10−4. For LoZO,
+we keep the hyper-parameter choices of [7] (rank r = 2, refresh period ν = 50). KronZO instead sets
+a shorter refresh period of ν = 5, which introduces only a negligible overhead because the auxiliary
+matrix B is inexpensive to generate; it also maintains a history loss buffer of size h = 10.
+Cost per step
+MeZO and LoZO rely on antithetic sampling: one perturbation requires two objective evaluations,
+L(θ + ϵZi) and L(θ − ϵZi), so each step costs 2 q forward passes to compute gradient estimator (6)
+and (10). KronZO re-uses the same pair to compute a scaling coefficient ci for i = 1 , 2, . . . , q, then
+evaluates the candidate L(θ − αciZi); each sample therefore costs three forward passes, i.e., 3 q per
+step.
+Directional versus averaging updates
+Table 3 compares the classical averaging update (q-RGE (6)) with its directional counterpart that
+we presented in Section Parameters update. To equalize wall-clock effort, the directional variants use
+q′ = ⌈2q/3⌉ samples so that the total number of forward passes remains identical. Both variants store
+a single perturbation vector, hence their memory footprint is the same.
+Table 3 confirms that substituting the averaging step with our directional update systematically
+enhances optimization. Hence, directional update yields richer descent directions and markedly lower
+objectives across all methods with equal total evaluation budget. The restricted optimization sub-
+space explored by LoZO does not adequately span the broad singular-value spectrum characteristic of
+pretraining, which accounts for its slightly reduced effectiveness. The extra run-time for LoZO and
+KronZO stems from their additional linear-algebra steps ( U lV l⊤ and Al ⊗ Bl, respectively); MeZO
+avoids this at the cost of higher memory.
+Table 3: Averaging vs. directional updates under a fixed forward-pass budget.
+Method Variant Step budget q Memory (GB) Time/iter (s) Final loss
+MeZO Averaging 50 1.0 6.7 8.62
+Directional 33 1.0 6.7 7.01
+LoZO Averaging 50 0.6 7.2 8.82
+Directional 33 0.6 7.2 7.53
+KronZO Averaging 50 0.5 7.4 8.63
+Directional 33 0.5 7.4 6.95
+Comparison with state-of-the-art
+Table 4 collects the best state-of-the-art variant of each ZO method and contrasts it with first-order
+SGD. Starting from an untrained loss of about 11, MeZO and LoZO achieve a ≈ 20% reduction, while
+KronZO reaches ≈ 37% with an even smaller memory footprint than LoZO.
+===PAGE 16===
+Les Cahiers du GERAD G–2025–44 – Revised 14
+Table 4: Resource usage and final loss. KronZO matches LoZO’s memory footprint while markedly improving optimization
+performance.
+Method Step budget q Memory (GB) Time/iter (s) Final loss
+SGD (1st-order) — 1.5 0.3 3.50
+Untrained — — — 11.0
+MeZO 50 1.0 6.7 8.62
+LoZO 50 0.6 7.2 8.82
+KronZO 33 0.5 7.5 6.95
+KronZO (GPT-2 XL 1.5B) 33 6.4 66.1 8.21
+SGD (GPT-2 XL 1.5B) — 20 2.6 2.85
+SGD converges more quickly and attains a lower loss, but it consumes about three-times the GPU
+memory, and the discrepancy grows with model size. The last two rows of Table 4, which cover
+a 1.55-billion-parameter model confirm that KronZO still requires only a fraction of the first-order
+memory. Its training efficiency, however, degrades at this scale, as expected: in very high dimensions
+the likelihood that a randomly sampled direction aligns well with the true stochastic gradient becomes
+vanishingly small. Designing more scalable direction-selection schemes to restore efficiency on billion-
+parameter LMs is therefore a key avenue for future work.
+Figure 6 plots the memory footprint across the OPT family [32]: the KronZO over AdamW memory
+ratio increases from 7 times on OPT-1.3B to roughly 11 times on OPT-30B. Results were extrapolated
+from [24], assuming sZO = 1, corresponding to storing the full matrix Z. These results make ZO
+methods such as KronZO a compelling choice whenever memory is the binding resource.
+1.3B 2.7B 6.7B 13B 30B
+Model Size (#Parameters)
+100
+101
+102
+103
+GPU Memory (GB)
+KronZO
+MeZO
+Adam
+Figure 6: Memory usage for KronZO, MeZO and classic first-order training with Adam on different sizes of OPT model
+in logarithmic scale.
+6 Conclusion and future work
+We analyzed pretraining stochastic gradients throughstable rank and participation ratio, revealing that
+the gradients effective dimensionality is higher than suggested by the stable rank alone. Consequently,
+low-rank ZO methods ignore critical directions in a pretraining context. On the other hand, existing
+full-rank ZO methods add significant memory or flops overhead. KronZO bridges this gap by pairing
+(i) a Kronecker parameterization that preserves rich subspaces with (ii) a directional criterion-based
+update, leading to better convergence. The result is a ZO optimizer that, under equal forward-pass
+budgets, outperforms MeZO and LoZO while using less memory. This work significantly extends the
+preliminary study of Allaire et al. [1], scaling to a model six times larger and surpassing state-of-the-art
+===PAGE 17===
+Les Cahiers du GERAD G–2025–44 – Revised 15
+ZO methods in pretraining performance. Although KronZO still trails SGD in final loss, we believe
+that ZO methods have the potential to reach performance comparable to first-order methods during
+pretraining on medium-sized models, while preserving their exceptionally low memory footprint, at
+the cost of a higher training time.
+Practical takeaways
+Use participation ratio for pretraining.It provides a faithful estimate of the number of active
+directions in LMs and should guide the choice of ZO rank.
+Prefer directional update.Replacing averaging by a directional test yields systematic gains.
+Choose KronZO when RAM is scarce.At fixed memory, it enables training large models more
+efficiently than full-rank ZO baselines.
+Limitations and future work
+KronZO increases the number of forward passes by 50% (3q vs. 2q per iteration). While this overhead is
+acceptable on inexpensive computations (for example on small models), latency-critical scenarios may
+require further pruning, or better exploiting the 3 q query budget per step, e.g., via secant-constrained
+updates.
+The method is also highly sensitive to the hyper-parameters choice, which were selected via a coarse
+grid search. Automated tuning methods, such as the Mesh Adaptive Direct Search (MADS) [4], could
+markedly enhance efficiency.
+A natural next step is to investigate techniques for closing the loss gap in KronZO that widens at
+larger scales, such as ZO-Kronecker momentum, or ZO parameter ϵ schedule.
+Finally, we did not evaluate KronZO in the fine-tuning setting; given its strong performance for
+zeroth-order pretraining, it may also prove effective for fine-tuning tasks.
+Declarations
+Ethical Approval Not applicable
+Funding This research was supported by the following NSERC Discovery Grants: RGPIN–2024–05086
+(Le Digabel), RGPIN–2020–06535 (Orban), and RGPIN–2025–06911 (Partovi Nia). On behalf of all
+authors, the corresponding author states that there is no conflict of interest.
+Availability of data and materials The datasets analyzed in this study are publicly available: the
+Shakespeare dataset [19] and the OpenWebText dataset [5].
+7 Appendix
+This section is dedicated to the convergence analysis of KronZO. We first prove the unbiasedness of
+the estimator (14), then show that KronZO can be seen as a subspace optimization problem before
+showing Theorem 1 from Convergence results.
+7.1 Unbiasedness of KronZO
+Definition 1 (Unbiased estimator). A gradient estimator with parameters P , b∇L(θ; ξ, P) is unbiased if
+EP
+h
+b∇L(θ; ξ; P )
+i
+= ∇L(θ; ξ).
+===PAGE 18===
+Les Cahiers du GERAD G–2025–44 – Revised 16
+Lemma 1. The gradient estimator in KronZO is unbiased. For all θ ∈ Rm×n, ξ∈ R,
+EZ
+h
+b∇L(θ; ξ, Z)
+i
+= ∇L(θ; ξ).
+Proof. Using vectorized notation,
+lim
+ϵ→0
+vec( b∇L(θ; ξ, Z, ϵ)) = vec(Z)vec(Z ⊤)vec(∇L(θ; ξ)).
+Taking the expectation on Z,
+EZ
+h
+vec( b∇L(θ; ξ))
+i
+= EZ
+
+vec(Z)vec(Z ⊤)vec(∇L(θ; ξ))
+
+= Σ × vec(∇L(θ; ξ)),
+with Σ = EZ
+
+vec(Z)vec(Z)⊤
+the covariance matrix of Z.
+Each component of Z is sampled from N (0, 1) therefore Σ = Imn which leads to
+EZ
+h
+b∇L(θ; ξ, Z, ϵ)
+i
+= ∇L(θ; ξ).
+Definition 1 concludes the proof.
+7.2 KronZO viewed as subspace minimization
+Let ϕ : Rp×q → Rm×n be a fixed linear map that defines the search subspace.
+ϕ(X) =
+(
+X V⊤ for LoZO with fixed U
+X ⊗B for KronZO with fixed B.
+Define
+Gθ(X; ξ) := L
+ 
+θ + ϕ(X); ξ
+
+, Gθ(X) := Eξ[Gθ(X; ξ)] .
+For a search direction A we abbreviate the two–point estimator
+b∇Gθ(X; ξ, A) := Gθ(X + ϵA; ξ) − Gθ(X − ϵA; ξ)
+2ϵ A.
+To solve (1), KronZO iteratively solves the following subproblem for ν iterations with fixed ma-
+trix B:
+X ∗ ∈ arg min
+X∈Rm1 ×n1
+Gθ(X). (18)
+At subproblem k, (18) is solved by following the update rule
+Xk,s+1 = Xk,s − α b∇X L(˜θk + Xk,s ⊗ Bk; ξk,s), s = 0, 1, . . . , ν− 1, (19)
+˜θk+1 = ˜θk + Xk,ν ⊗ Bk. (20)
+Here, Xk,0 = 0, and
+b∇X L(˜θk + Xk,s ⊗ Bk; ξk,s) =
+L(˜θk + (Xk,s + ϵAk,s) ⊗ Bk; ξk,s) − L(˜θk + (Xk,s − ϵAk,s) ⊗ Bk; ξk,s)
+2ϵ Ak,s,
+where Ak,s is sampled from a normal distribution every iteration. Let Yk,s := ˜θk + Xk,s ⊗ Bk. Using
+the update rule (19) to derive the update of Y gives
+Yk,s+1 = Yk,s − α L(Yk,s + ϵAk,s ⊗ Bk; ξk,s) − L(Yk,s − ϵAk,s ⊗ Bk; ξk,s)
+2ϵ Ak,s ⊗ Bk, (21)
+which is exactly (15). Details on the equivalence between methods such as LoZO and KronZO and
+the subspace minimization problem (18) can be found in [7, Section 4.2].
+===PAGE 19===
+Les Cahiers du GERAD G–2025–44 – Revised 17
+7.3 Convergence analysis
+The analysis is divided in two parts. First, we derive a bound on the subproblem iterations in Lemma 7,
+then use it to derive an upper bound on the whole optimization process in Theorem 1. In the remainder
+of this section, we suppose Assumption 1 is satisfied.
+Lemma 2 (Lipschitz continuity in theX-space). Let B ∈ Rm2×n2 be fixed and define ϕ(X) = X ⊗ B.
+Under Assumption 1,
+X 7− → ∇X Gθ(X)
+is eL–Lipschitz w.r.t. the Frobenius norm, where
+eL = L ∥B∥2
+F .
+Where L is the Lipschitz constant of θ 7→ ∇θL(θ) from Assumption 1.
+Proof. Set g(X) := θ + X ⊗ B, so that Gθ(X) = L(g(X)). For any perturbation ∆ X, by the chain
+rule,
+dGθ(X)[∆X] =
+
+∇θL
+ 
+g(X)
+
+, ∆X ⊗ B
+
+F .
+By Frobenius duality, ∇X Gθ(X) = CB
+ 
+∇θL
+ 
+g(X)
+
+, where the contraction CB (adjoint of X 7→ X ⊗B)
+satisfies ∥CB∥op ≤ ∥B∥F .
+Let X1, X2 and Yk = g(Xk). Then
+∥∇X Gθ(X1) − ∇X Gθ(X2)∥F ≤ ∥B∥F ∥∇θL(Y1) − ∇θL(Y2)∥F ≤ L ∥B∥F ∥Y1 − Y2∥F .
+Since ∥Y1 − Y2∥F = ∥(X1 − X2) ⊗ B∥F = ∥X1 − X2∥F ∥B∥F ,
+∥∇X Gθ(X1) − ∇X Gθ(X2)∥F ≤ L ∥B∥2
+F ∥X1 − X2∥F .
+Lemma 3 (Variance bound of the projected gradient). Let B ∈ Rm2×n2 be fixed and define ϕ(X) = X ⊗B.
+Under Assumption 1, for any X ∈ Rm1×n1 ,
+Eξ
+h
+∥∇X Gθ(X; ξ) − ∇X Gθ(X)∥2
+F
+i
+≤ eσ2
+where eσ2 := σ2∥B∥2
+F and σ2 is the variance bound from Assumption 1.
+Proof. With ϕ(X) = X ⊗ B and the Frobenius duality (see the proof of Lemma 2) we have
+∇X Gθ(X; ξ) = CB
+ 
+∇θL(θ + X ⊗ B; ξ)
+
+,
+where the contraction operator CB : R(m1m2)×(n1n2) − →Rm1×n1 is defined block–wise by
+
+CB(T )
+
+ij := ⟨T(ij), B⟩F , T (ij) ∈ Rm2×n2 is the ( i, j)–block of T.
+For any block matrix T
+CB(T )
+2
+F ≤ ∥B∥2
+F
+X
+i,j
+∥T(ij)∥2
+F = ∥B∥2
+F ∥T ∥2
+F ,
+hence ∥CB∥op ≤ ∥B∥F .
+Define the zero-mean random matrix
+∆(ξ) := ∇θL(θ + X ⊗ B; ξ) − ∇θL(θ + X ⊗ B).
+===PAGE 20===
+Les Cahiers du GERAD G–2025–44 – Revised 18
+By Assumption 1, Eξ
+h
+∥∆(ξ)∥2
+F
+i
+≤ σ2.
+Eξ
+h
+∥∇X Gθ(X; ξ) − ∇X Gθ(X)∥2
+F
+i
+= Eξ
+hCB
+ 
+∆(ξ)
+2
+F
+i
+≤ ∥CB∥2
+op Eξ
+h
+∥∆(ξ)∥2
+F
+i
+≤ ∥B∥2
+F σ2.
+Therefore Eξ
+h
+∥∇X Gθ(X; ξ) − ∇X Gθ(X)∥2
+F
+i
+≤ σ2 ∥B∥2
+F , which completes the proof.
+Lemma 4. Under Assumption 1, for the gradient estimator b∇Gθ(X; ξ), the following bound holds:
+EA
+ b∇Gθ(X; ξ)
+
+2
+F
+
+≤
+˜L(m1n1 + 4)3ϵ2
+4 + 6m2
+1n2
+1 ∥∇Gθ(X; ξ)∥2
+F .
+Proof. First,
+EA
+ b∇Gθ(X; ξ)
+
+2
+F
+
+≤ 2EA
+ b∇Gθ(X; ξ) − ⟨∇Gθ(X; ξ), A⟩A
+
+2
+F
+
++ 2EA
+h
+∥⟨∇Gθ(X; ξ), A⟩A∥2
+F
+i
+. (22)
+For the first term in Equation 22, we use the Taylor inequality along with Lemma 2:
+|Gθ(X + ϵA; ξ) − Gθ(X) − ϵ⟨∇Gθ(X; ξ), A⟩| ≤
+˜Lϵ2
+2 ∥A∥2
+F ,
+|Gθ(X − ϵA; ξ) − Gθ(X) + ϵ⟨∇Gθ(X; ξ), A⟩| ≤
+˜Lϵ2
+2 ∥A∥2
+F .
+Combining both inequalities give
+|Gθ(X + ϵA; ξ) − Gθ(X − ϵA; ξ) − 2ϵ⟨∇Gθ(X; ξ), A⟩| ≤˜Lϵ2 ∥A∥2
+F .
+Dividing both sides by 2 ϵ, multiplying by ∥A∥F and taking the square give
+ b∇Gθ(X; ξ) − ⟨∇Gθ(X; ξ), A⟩A
+
+2
+F
+≤
+˜Lϵ2
+4 ∥A∥6
+F .
+Taking the expectation on A and multiplying by two give
+2EA
+ b∇Gθ(X; ξ) − ⟨∇Gθ(X; ξ), A⟩A
+
+2
+F
+
+≤
+˜Lϵ2
+2 EA
+
+∥A∥6
+F
+
+.
+Since A : m1 × n1 has i.i.d N (0, 1) entries, the Frobenius norm satisfies ∥A∥2
+F ∼ χ2(m1n1). Then,
+EA
+
+∥A∥6
+F
+
+= EA
+h
+(∥A∥2
+F)3
+i
+= EA
+
+(χ2(m1n1))3
+= m1n1(m1n1 + 2)(m1n1 + 4) ≤ (m1n1 + 4)3.
+Eventually,
+2EA
+ b∇Gθ(X; ξ) − ⟨∇Gθ(X; ξ), A⟩A
+
+2
+F
+
+≤
+˜L(m1n1 + 4)3ϵ2
+4 .
+The second term in Equation 22 can be calculated directly with the Cauchy-Schwarz inequality:
+2EA
+h
+∥⟨∇Gθ(X; ξ), A⟩A∥2
+F
+i
+≤ 2 ∥∇Gθ(X; ξ)∥2
+F EA
+
+∥A∥4
+F
+
+≤ 6m2
+1n2
+1 ∥∇Gθ(X; ξ)∥2
+F, which completes
+the proof.
+===PAGE 21===
+Les Cahiers du GERAD G–2025–44 – Revised 19
+We now introduce the Gaussian smoothing function :
+Gϵ
+θ(X) = EA[Gθ(X + ϵA)] = 1
+κ
+Z
+Gθ(X + ϵA)e− 1
+2 ∥A∥2
+F dA,
+where κ is the normalization parameter: κ =
+R
+e− 1
+2 ∥A∥2
+F dA.
+Lemma 5. For the Gaussian smoothing function Gϵ
+θ(X), the following properties hold:
+• EA,ξ
+h
+b∇Gθ(X; ξ)
+i
+= ∇Gϵ
+θ(X),
+• Gϵ
+θ(X) is ˜L-smooth,
+• |Gϵ
+θ(X) − Gθ(X)| ≤
+˜Lm1n1ϵ2
+2 ,
+• ∥∇Gϵ
+θ(X) − ∇Gθ(X)∥2
+F ≤ ˜L2m1n1ϵ2.
+Proof. The three first properties can be found in [25, Section 2]. The proof of the last claim can be
+found in [7, Lemma B.3].
+Lemma 6. If the step size condition 36 ˜L2α2νm2
+1n2
+1 ≤ 1
+ν−1 is satisfied, then for any t ≤ ν, the following
+bound holds:
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
+≤ 144α2ν2m2
+1n2
+1EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 536α2 ˜L2ϵ2m3
+1n3
+1ν2 + 24ν2α2 ˜σ2. (23)
+Proof. Let t ∈ [0, ν− 1]. By definition of Xt+1,
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+= EA,ξ
+Xt − α b∇Gθ(Xt; ξt) − X0
+
+2
+F
+
+(24)
+≤ EA,ξ
+h
+∥Xt − α∇Gϵ
+θ(Xt) − X0∥2
+F
+i
++ α2EA,ξ
+∇Gϵ
+θ(Xt) − b∇Gθ(Xt; ξt)
+
+2
+F
+
+.
+(25)
+Since the squared Frobenius norm is convex, for any function ϕ and for any c ∈ (0, 1),
+∥ϕ(x) + ϕ(y)∥2
+F =
+c ϕ(x)
+c + (1 − c) ϕ(y)
+1 − c
+
+2
+F
+≤ c
+
+ϕ(x)
+c
+
+2
+F
++ (1 − c)
+
+ϕ(y)
+1 − c
+
+2
+F
+= 1
+c ∥ϕ(x)∥2
+F + c ∥ϕ(y)∥2
+F .
+For the first term in (25), applying the previous convexity inequality with c = ν−1
+ν ∈ (0, 1) gives
+EA,ξ
+h
+∥Xt − α∇Gϵ
+θ(Xt) − X0∥2
+F
+i
+≤
+ 
+1 + 1
+ν − 1
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ νEA,ξ
+h
+∥α∇Gθϵ (Xt)∥2
+F
+i
+.
+For the second term, we reuse the convexity inequality to get
+α2EA,ξ
+∇Gϵ
+θ(Xt) − b∇Gθ(Xt; ξt)
+
+2
+F
+
+≤ να2
+ν − 1 EA,ξ
+ b∇Gθ(Xt, ξt)
+
+2
+F
+
++ α2νEA,ξ
+h
+∥∇Gϵ
+θ(Xt)∥2
+F
+i
+.
+Combining the two previous inequalities gives
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+≤
+ 
+1 + 1
+ν − 1
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ 2α2νEA,ξ
+h
+∥∇Gϵ
+θ(Xt)∥2
+F
+i
+===PAGE 22===
+Les Cahiers du GERAD G–2025–44 – Revised 20
++ α2 
+1 + 1
+ν − 1
+
+EA,ξ
+ b∇Gθ(Xt, ξt)
+
+2
+F
+
+. (26)
+To bound the second term in (26), we add and subtract a compensatory term along with Jensen’s
+inequality to get
+2α2νEA,ξ
+h
+∥∇Gϵ
+θ(Xt)∥2
+F
+i
+=2α2νEA,ξ
+h
+∥∇Gϵ
+θ(Xt) − ∇Gθ(Xt) + ∇Gθ(Xt) − ∇Gθ(Xt; ξt) + ∇Gθ(Xt; ξt)∥2
+F
+i
+≤6να2EA,ξ
+h
+∥∇Gϵ
+θ(Xt) − ∇Gθ(Xt)∥2
+F
+i
++ 6να2EA,ξ
+h
+∥∇Gθ(Xt) − ∇Gθ(Xt; ξt)∥2
+F
+i
++ 6να2EA,ξ
+h
+∥∇Gθ(Xt; ξt)∥2
+F
+i
+.
+Now, Lemma 4 and Lemma 5 give
+2α2νEA,ξ
+h
+∥∇Gϵ
+θ(Xt)∥2
+F
+i
+≤ 6να2 ˜L2m1n1ϵ2 + 6να2 ˜σ2 + 6να2EA,ξ
+h
+∥∇Gθ(Xt; ξt)∥2
+F
+i
+.
+To bound the third term in (26), using Lemma 4 and noticing m2
+1n2
+1 ≥ m1n1 ≥ 1,
+α2 
+1 + 1
+ν − 1
+
+EA,ξ
+ b∇Gθ(Xt, ξt)
+
+2
+F
+
+≤ 2α2EA,ξ
+ b∇Gθ(Xt, ξt)
+
+2
+F
+
+≤ 2α2 ˜L(m1n1 + 4)3ϵ2
+4 + 12α2m2
+1n2
+1 ∥∇Gθ(X; ξ)∥2
+F
+≤ 128α2 ˜L2ϵ2m3
+1n3
+1ν + 12α2m2
+1n2
+1 ∥∇Gθ(X; ξ)∥2
+F .
+We can now bound the right term in (26):
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+≤
+ 
+1 + 1
+ν − 1
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ (6να2 + 12α2m2
+1n2
+1)EA,ξ
+h
+∥∇Gθ(Xt; ξt)∥2
+F
+i
++ 6να2m3
+1n3
+1ϵ2 + 6να2 ˜σ2 + 128α2 ˜L2ϵ2m3
+1n3
+1.
+Using ˜L-smoothness of ∇Gθ(X, ξ) from Lemma 2 and ν ≥ 2,
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+≤
+ 
+1 + 1
+ν − 1 + 2˜L2(6να2 + 12α2m2
+1n2
+1)
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ (12α2m2
+1n2
+1ν + 24α2m2
+1n2
+1ν)EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 6να2 ˜σ2 + 134α2 ˜L2ϵ2m3
+1n3
+1ν.
+Now we simplify the expression
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+≤
+ 
+1 + 1
+ν − 1 + 36˜L2α2νm2
+1n2
+1
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ 36α2νm2
+1n2
+1EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 134α2 ˜L2ϵ2m3
+1n3
+1ν + 6να2 ˜σ2.
+Applying the step size condition 36 ˜L2α2νm2
+1n2
+1 ≤ 1
+ν−1 ,
+EA,ξ
+h
+∥Xt+1 − X0∥2
+F
+i
+≤
+ 
+1 + 2
+ν − 1
+
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
+===PAGE 23===
+Les Cahiers du GERAD G–2025–44 – Revised 21
++ 36α2νm2
+1n2
+1EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 134α2 ˜L2ϵ2m3
+1n3
+1ν + 6να2 ˜σ2.
+By induction, noting that Pt−1
+s=0
+ 
+1 + 2
+ν−1
+
+≤ 4ν for t ≤ ν,
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
+≤
+t−1X
+s=0
+ 
+1 + 2
+ν − 1
+ 
+36α2νm2
+1n2
+1EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 134α2 ˜L2ϵ2m3
+1n3
+1ν + 6να2 ˜σ2
+
+≤ 144α2ν2m2
+1n2
+1EA,ξ
+h
+∥∇Gθ(X0; ξ0)∥2
+F
+i
++ 536α2 ˜L2ϵ2m3
+1n3
+1ν2 + 24ν2α2 ˜σ2,
+which concludes the proof.
+In Lemma 6, the step size condition 36 ˜L2α2νm2
+1n2
+1 ≤ 1
+ν−1 =⇒ α ≤ 1
+6 ˜Lm1n1(ν−1) , which is a weaker
+condition in expectation than α < −28+
+√
+282+144
+288 ¯Lm1n1ν . Therefore, if α satisfies condition for Theorem 1,
+the condition in Lemma 6 is also satisfied.
+Lemma 7. The following bound holds for subproblem (18):
+EA,ξ[Gθ(Xν) − Gθ(X0)] ≤
+
+− να
+4 + 28˜Lm1n1ν2α2 + 144α3ν3m2
+1n2
+1 ˜L2
+
+EA,ξ
+h
+∥∇Gθ(X0)∥2
+F
+i
++ 536ν3 ˜L4α3ϵ2m2
+1n2
+1 + 24ν3 ˜L2α3 ˜σ2
++
+˜L2m1n1ϵ2αν
+2 + 66˜L3m3
+1n3
+1ϵ2να2 + 12˜σ2 ˜Lm1n1α2ν. (27)
+Proof. The proof is very similar to [7, Lemma B.5], therefore we rewrite in our notation only the
+important steps of the proof. First, using ˜L-smoothness of Gϵ
+θ, and the inequality Xν − X0 =
+−α Pν−1
+t=0 b∇Gθ(Xt; ξt),
+EA,ξ[Gθ(Xν) − Gθ(X0)] ≤ EA,ξ[⟨∇Gϵ
+θ(X0), Xν − X0⟩] +
+˜L
+2 EA,ξ
+h
+∥Xν − X0∥2
+F
+i
+= −α
+ν−1X
+t=0
+EA,ξ
+h
+⟨∇Gϵ
+θ(X0), b∇Gθ(Xt; ξt)⟩
+i
++ α2 ˜L
+2 EA,ξ
+
+
+
+ν−1X
+t=0
+b∇Gθ()Xt; ξt
+
+2
+F
+
+ .
+(28)
+The first term in (28) can be bounded using ⟨a, b⟩ ≤∥a2∥+∥b∥2
+2 along with Lemma 2 and Lemma 5
+to get
+−α
+ν−1X
+t=0
+EA,ξ
+h
+⟨∇Gϵ
+θ(X0), b∇Gθ(Xt; ξt)⟩
+i
+≤ −αν
+4 EA,ξ
+h
+∥∇Gθ(X0)∥2
+F
+i
++
+˜L2α
+2
+ν−1X
+t=0
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++
+˜L2m1n1ϵ2αν
+2 . (29)
+On the other hand, using Lemma 4 and Lemma 5
+α2 ˜L
+2 EA,ξ
+
+
+
+ν−1X
+t=0
+b∇Gθ(Xt; ξt)
+
+2
+F
+
+ ≤28 ˜Lm1n1ν2α2EA,ξ
+h
+∥∇Gθ(X0)∥2
+F
+i
+===PAGE 24===
+Les Cahiers du GERAD G–2025–44 – Revised 22
++ 28˜L3m1n1να2
+ν−1X
+t=0
+EA,ξ
+h
+∥Xt − X0∥2
+F
+i
++ 66˜L3m3
+1n3
+1ϵ2να2 + 12˜σ2 ˜Lm1n1α2ν. (30)
+Combining (29) and (30) gives
+EA,ξ[Gθ(Xν) − Gθ(X0)] ≤
+
+− να
+4 + 28˜Lm1n1ν2α2 + 144α3ν3m2
+1n2
+1 ˜L2
+
+EA,ξ
+h
+∥∇Gθ(X0)∥2
+F
+i
++ 536ν3 ˜L4α3ϵ2m2
+1n2
+1 + 24ν3 ˜L2α3 ˜σ2
++
+˜L2m1n1ϵ2αν
+2 + 66˜L3m3
+1n3
+1ϵ2να2 + 12˜σ2 ˜Lm1n1α2ν.
+Now we have established the bound for solving the subproblem (18). Next, we investigate the
+impact of updating θ and resampling B and establish the convergence result for our proposed KronZO
+algorithm. This leads to Theorem 1.
+Proof of Theorem 1. Recalling the update rule for the subproblem, it follows that
+Gθkν (Xν) = L(θkν + X(k,ν) ⊗ Bk) = L(θ(k+1)ν), Gθkν (X0) = L(θkν ).
+Moreover, note that ∇Gθkν (X0) = ∇L(θkν )⊗Bk. Denote ¯L = EB
+h
+˜L
+i
+= m2n2L and ¯σ2 = EB
+
+˜σ2
+=
+m2n2σ2. Applying Lemma 7 gives
+EA,B,ξ
+
+L(θ(k+1)ν − L(θkν )
+
+≤
+
+− να
+4 + 28¯Lm1n1ν2α2 + 144α3ν3m2
+1n2
+1 ¯L2
+
+EA,ξ
+h
+∥∇L(θkν ) ⊗ Bk∥2
+F
+i
++ 536ν3 ¯L4α3ϵ2m2
+1n2
+1 + 24ν3 ¯L2α3 ¯σ2
++
+¯L2m1n1ϵ2αν
+2 + 66¯L3m3
+1n3
+1ϵ2να2 + 12¯σ2 ¯Lm1n1α2ν.
+Using identity ∥P ⊗ Q∥2
+F = ∥P ∥2
+F ∥Q∥2
+F and E
+h
+∥Bk∥2
+F
+i
+= m2n2, dividing by ναK on both sides
+then summing over K and rearranging the terms give
+β m2n2
+K
+K−1X
+k=0
+∥∇L(θkν )∥2
+F ≤ L(θ0) − L∗
+T α +
++ 536ν2 ¯L4α2ϵ2m2
+1n2
+1 + 24ν3 ¯L2α3 ¯σ2
++
+¯L2m1n1ϵ2
+2 + 66¯L3m3
+1n3
+1ϵ2α + 12¯σ2 ¯Lm1n1α,
+which is (16). Moreover, letting a := ¯Lm1n1να, the quantity β = 1
+4 − 28a − 144a2 is a concave
+quadratic function of a with two real roots. Therefore, β >0 if and only if
+0 < a <−28 +
+√
+282 + 144
+288 ,
+which is equivalent to the step condition
+0 < α <−28 +
+√
+282 + 144
+288 ¯Lm1n1ν .
+===PAGE 25===
+Les Cahiers du GERAD G–2025–44 – Revised 23
+References
+[1] N. Allaire, M. Ghazvini Nejad, S. Le Digabel, and V. Partovi Nia. Zeroth order optimization for pretraining
+language models. In Proceedings of the 14th International Conference on Pattern Recognition Applications
+and Methods – Volume 1: ICPRAM, pages 113–121, Porto, Portugal, 2025. SciTePress. doi: 10.5220/
+0013261100003905.
+[2] Shun-ichi Amari. Backpropagation and stochastic gradient descent method. Neurocomputing, 5(4-5):
+185–196, 1993. doi: https://doi.org/10.1016/0925-2312(93)90006-O.
+[3] C. Audet and W. Hare. Derivative-Free and Blackbox Optimization. Springer Series in Operations
+Research and Financial Engineering. Springer, Cham, Switzerland, 2017. doi: 10.1007/978-3-319-68913-5.
+[4] Charles Audet and J. E. Dennis. Mesh adaptive direct search algorithms for constrained optimization.
+SIAM Journal on Optimization, 17(1):188–217, 2006. doi: 10.1137/040603371.
+[5] Stella Biderman, Leo Gao, Joel Lehman, Eric Hallahan, Cory Zue, Scott Gray, Kyle McDonell, Jason
+Phang, Samuel Weinbach, and Ellie Pavlick. Openwebtext corpus. https://skylion007.github.io/
+OpenWebTextCorpus/, 2019.
+[6] Julius R. Blum. Multidimensional stochastic approximation methods. The annals of mathematical statis-
+tics, pages 737–744, 1954. doi: 10.1214/aoms/1177728659.
+[7] Y. Chen, Y. Zhang, L. Cao, K. Yuan, and Z. Wen. Enhancing zeroth-order fine-tuning for language models
+with low-rank structures, 2024. URL https://arxiv.org/abs/2410.07698.
+[8] Amit Dhurandhar, Tejaswini Pedapati, Avinash Balakrishnan, Pin-Yu Chen, Karthikeyan Shanmugam,
+and Ruchir Puri. Model agnostic contrastive explanations for structured data, 2019. URL https://
+arxiv.org/abs/1906.00117.
+[9] John C. Duchi, Michael I. Jordan, Martin J. Wainwright, and Andre Wibisono. Optimal rates for zero-
+order convex optimization: the power of two function evaluations, 2014. URL https://arxiv.org/abs/
+1312.2139.
+[10] Peiran Gao, Eric Trautmann, Byron Yu, Gopal Santhanam, Stephen Ryu, Krishna Shenoy, and Surya
+Ganguli. A theory of multineuronal dimensionality, dynamics and measurement. bioRxiv, 2017. doi:
+10.1101/214262.
+[11] Saeed Ghadimi and Guanghui Lan. Stochastic first- and zeroth-order methods for nonconvex stochastic
+programming. SIAM Journal on Optimization, 23(4):2341–2368, 2013. doi: 10.1137/120880811.
+[12] Alexander Graham. Kronecker products and matrix calculus with applications. Courier Dover Publica-
+tions, Mineola, NY, 2018.
+[13] Suchin Gururangan, Ana Marasovi´ c, Swabha Swayamdipta, Kyle Lo, Iz Beltagy, Doug Downey, and
+Noah A. Smith. Don’t stop pretraining: Adapt language models to domains and tasks. In Proceedings
+of the 58th Annual Meeting of the Association for Computational Linguistics, pages 8342–8360, Online,
+hosted in Seattle, W A, 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-
+main.740.
+[14] M.G.A Hameed, A. Mosleh, M.S Tahaei, and V. Partovi Nia. Sekron: A decomposition method supporting
+many factorization structures, 2022. URL https://arxiv.org/abs/2210.06299.
+[15] O. C. Herfindahl. Concentration in the Steel Industry. PhD thesis, Columbia University, 1950. URLhttps:
+//archive.org/details/herfindahl-concentration-in-the-steel-industry-1950-publish . PhD
+thesis; accessible via Internet Archive (published online 2021).
+[16] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+Weizhu Chen. Lora: Low-rank adaptation of large language models, 2021. URL https://arxiv.org/
+abs/2106.09685.
+[17] Andrew Ilyas, Logan Engstrom, Anish Athalye, and Jessy Lin. Black-box adversarial attacks with limited
+queries and information, 2018. URL https://arxiv.org/abs/1804.08598.
+[18] J. Kaplan, S. McCandlish, T. Henighan, T. B. Brown, B. Chess, R. Child, S. Gray, A. Radford, J. Wu, and
+D. Amodei. Scaling laws for neural language models, 2020. URL https://arxiv.org/abs/2001.08361.
+[19] Andrej Karpathy. Nanogpt. https://github.com/karpathy/nanoGPT, 2023. GitHub repository.
+[20] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization, 2017. URL https:
+//arxiv.org/abs/1412.6980.
+[21] D. Lakhmiri, S. Le Digabel, and C. Tribes. HyperNOMAD: Hyperparameter Optimization of Deep Neural
+Networks Using Mesh Adaptive Direct Search. ACM Transactions on Mathematical Software, 47(3), 2021.
+doi: 10.1145/3450975. URL https://dx.doi.org/10.1145/3450975.
+===PAGE 26===
+Les Cahiers du GERAD G–2025–44 – Revised 24
+[22] Brett W. Larsen, Stanislav Fort, Nic Becker, and Surya Ganguli. How many degrees of freedom do we need
+to train deep networks: a loss landscape perspective, 2022. URL https://arxiv.org/abs/2107.05802.
+[23] Chunyuan Li, Heerad Farkhoor, Rosanne Liu, and Jason Yosinski. Measuring the intrinsic dimension of
+objective landscapes, 2018. URL https://arxiv.org/abs/1804.08838.
+[24] S. Malladi, T. Gao, E. Nichani, A. Damian, J.D Lee, D. Chen, and S. Arora. Fine-tuning language models
+with just forward passes, 2024. URL https://arxiv.org/abs/2305.17333.
+[25] Yurii Nesterov and Vladimir Spokoiny. Random gradient-free minimization of convex functions. Founda-
+tions of Computational Mathematics, 17(2):527–566, 2017. doi: 10.1007/s10208-015-9296-2.
+[26] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language
+models are unsupervised multitask learners, 2019. URL https://cdn.openai.com/better-language-
+models/language_models_are_unsupervised_multitask_learners.pdf. Technical report, OpenAI.
+[27] James C. Spall. Multivariate stochastic approximation using a simultaneous perturbation gradient ap-
+proximation. IEEE transactions on automatic control, 37(3):332–341, 1992. doi: 10.1109/9.119632.
+[28] C. Tribes, S. Benarroch-Lelong, P. Lu, and I. Kobyzev. Hyperparameter Optimization for Large Language
+Model Instruction-Tuning. Technical Report G-2023-62, Les cahiers du GERAD, 2023.
+[29] Chun-Chen Tu, Paishun Ting, Pin-Yu Chen, Sijia Liu, Huan Zhang, Jinfeng Yi, Cho-Jui Hsieh, and Shin-
+Ming Cheng. Autozoom: Autoencoder-based zeroth order optimization method for attacking black-box
+neural networks, 2020. URL https://arxiv.org/abs/1805.11770.
+[30] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz
+Kaiser, and Illia Polosukhin. Attention is all you need. CoRR, 2017. URL http://arxiv.org/abs/1706.
+03762.
+[31] L. Zhang, B. Li, K.K Thekumparampil, S. Oh, M. Muehlebach, and N. He. Zeroth-order optimization
+finds flat minima, 2025. URL https://arxiv.org/abs/2506.05454.
+[32] Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher
+Dewan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mihaylov, Myle Ott, Sam Shleifer, Kurt Shuster,
+Daniel Simig, Punit Singh Koura, Anjali Sridhar, Tianlu Wang, and Luke Zettlemoyer. Opt: Open
+pre-trained transformer language models, 2022. URL https://arxiv.org/abs/2205.01068.
+[33] Yihua Zhang, Pingzhi Li, Junyuan Hong, Jiaxiang Li, Yimeng Zhang, Wenqing Zheng, Pin-Yu Chen,
+Jason D. Lee, Wotao Yin, Mingyi Hong, Zhangyang Wang, Sijia Liu, and Tianlong Chen. Revisiting
+zeroth-order optimization for memory-efficient llm fine-tuning: A benchmark, 2024. URL https://arxiv.
+org/abs/2402.11592.
+[34] Pu Zhao, Sijia Liu, Pin-Yu Chen, Nghia Hoang, Kaidi Xu, Bhavya Kailkhura, and Xue Lin. On the design
+of black-box adversarial examples by leveraging gradient-free optimization and operator splitting method,
+2019. URL https://arxiv.org/abs/1907.11684.
